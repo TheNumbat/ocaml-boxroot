@@ -14,6 +14,11 @@ inline int boxroot_domain_lock_held(int dom_id)
     && BOXROOT_LIKELY(dom_st->id == dom_id);
 }
 
+inline int boxroot_domain_lock_held_any()
+{
+  return BOXROOT_LIKELY(Caml_state_opt != NULL);
+}
+
 #else
 
 /* 0 when the master lock is held, 1 otherwise */
@@ -40,6 +45,11 @@ inline int boxroot_domain_lock_held(int dom_id)
   (void)dom_id;
   return  BOXROOT_LIKELY(boxroot_thread_has_lock)
     && BOXROOT_LIKELY(boxroot_hooks_valid());
+}
+
+inline int boxroot_domain_lock_held_any()
+{
+  return boxroot_domain_lock_held(0);
 }
 
 #endif

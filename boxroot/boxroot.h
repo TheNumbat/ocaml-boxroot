@@ -9,6 +9,7 @@
 #include "ocaml_hooks.h"
 #include "platform.h"
 
+/* `boxroot`s follow an ownership discipline. */
 typedef struct boxroot_private* boxroot;
 
 /* `boxroot_create(v)` allocates a new boxroot initialised to the
@@ -26,7 +27,8 @@ inline boxroot boxroot_create(value);
    pointer becomes invalid after any call to `boxroot_delete(r)` or
    `boxroot_modify(&r,v)`. The argument must be non-null.
 
-   The OCaml domain lock must be held before calling `boxroot_get*`.
+   The OCaml domain lock must be held before calling `boxroot_get` or
+   before deferencing the result of `boxroot_get_ref`.
 */
 inline value boxroot_get(boxroot r) { return *(value *)r; }
 inline value const * boxroot_get_ref(boxroot r) { return (value *)r; }

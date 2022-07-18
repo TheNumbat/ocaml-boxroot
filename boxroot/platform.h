@@ -43,6 +43,8 @@
 #include <caml/minor_gc.h>
 #include <caml/roots.h>
 
+#define Cache_line_size 64 /* TODO: platform-dependent */
+
 #define load_relaxed(a) (atomic_load_explicit((a), memory_order_relaxed))
 #define store_relaxed(a, n)                               \
   (atomic_store_explicit((a), (n), memory_order_relaxed))

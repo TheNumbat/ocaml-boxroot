@@ -157,3 +157,4 @@ void boxroot_setup_hooks(boxroot_scanning_callback scanning,
 
 /* Needed to avoid linking error with Rust */
 extern inline int boxroot_domain_lock_held(int dom_id);
+extern inline int boxroot_domain_lock_held_any();
