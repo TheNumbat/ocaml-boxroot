@@ -102,14 +102,7 @@ typedef struct {
 static pool_rings *pools[Num_domains + 1] = { NULL };
 #define Orphaned_id Num_domains
 
-static boxroot_fl empty_fl =
-  { (slot)&empty_fl
-    , NULL
-    , -1
-#if OCAML_MULTICORE
-    , -1
-#endif
-  };
+static boxroot_fl empty_fl = { (slot)&empty_fl, NULL, -1, -1 };
 
 /* Synchronisation: via domain lock */
 boxroot_fl *boxroot_current_fl[Num_domains + 1];
@@ -121,17 +114,12 @@ static inline int dom_id_of_pool(pool *p)
   return dom_id_of_fl(&p->free_list);
 }
 
-#if OCAML_MULTICORE
 /* requires domain lock: NO
    requires pool lock: NO */
 static inline void pool_set_dom_id(pool *p, int dom_id)
 {
-  return atomic_store_explicit(&p->free_list.domain_id, dom_id,
-                               memory_order_relaxed);
+  return store_relaxed(&p->free_list.domain_id, dom_id);
 }
-#else
-static inline void pool_set_dom_id(pool *p, int n) { (void)p; (void)n; }
-#endif // OCAML_MULTICORE
 
 static pool_rings * init_pool_rings(int dom_id);
 
@@ -196,33 +184,33 @@ static pool_rings * init_pool_rings(int dom_id)
 }
 
 static struct {
-  stat_t minor_collections;
-  stat_t major_collections;
-  stat_t total_create_young;
-  stat_t total_create_old;
-  stat_t total_create_slow;
-  stat_t total_delete_young;
-  stat_t total_delete_old;
-  stat_t total_delete_slow;
-  stat_t total_modify;
-  stat_t total_scanning_work_minor;
-  stat_t total_scanning_work_major;
-  stat_t total_minor_time;
-  stat_t total_major_time;
-  stat_t peak_minor_time;
-  stat_t peak_major_time;
-  stat_t total_alloced_pools;
-  stat_t total_emptied_pools;
-  stat_t total_freed_pools;
-  stat_t live_pools; // number of tracked pools
-  stat_t peak_pools; // max live pools at any time
-  stat_t ring_operations; // Number of times p->next is mutated
-  stat_t young_hit_gen; /* number of times a young value was encountered
+  atomic_llong minor_collections;
+  atomic_llong major_collections;
+  atomic_llong total_create_young;
+  atomic_llong total_create_old;
+  atomic_llong total_create_slow;
+  atomic_llong total_delete_young;
+  atomic_llong total_delete_old;
+  atomic_llong total_delete_slow;
+  atomic_llong total_modify;
+  atomic_llong total_scanning_work_minor;
+  atomic_llong total_scanning_work_major;
+  atomic_llong total_minor_time;
+  atomic_llong total_major_time;
+  atomic_llong peak_minor_time;
+  atomic_llong peak_major_time;
+  atomic_llong total_alloced_pools;
+  atomic_llong total_emptied_pools;
+  atomic_llong total_freed_pools;
+  atomic_llong live_pools; // number of tracked pools
+  atomic_llong peak_pools; // max live pools at any time
+  atomic_llong ring_operations; // Number of times p->next is mutated
+  atomic_llong young_hit_gen; /* number of times a young value was encountered
                            during generic scanning (not minor collection) */
-  stat_t young_hit_young; /* number of times a young value was encountered
+  atomic_llong young_hit_young; /* number of times a young value was encountered
                              during young scanning (minor collection) */
-  stat_t get_pool_header; // number of times get_pool_header was called
-  stat_t is_pool_member; // number of times is_pool_member was called
+  atomic_llong get_pool_header; // number of times get_pool_header was called
+  atomic_llong is_pool_member; // number of times is_pool_member was called
 } stats;
 
 /* }}} */
@@ -321,7 +309,7 @@ static inline int is_full_pool(pool *p)
    requires pool lock: NO */
 static pool * get_empty_pool()
 {
-  long long live_pools = incr(&stats.live_pools);
+  long long live_pools = 1 + incr(&stats.live_pools);
   /* racy, but whatever */
   if (live_pools > stats.peak_pools) stats.peak_pools = live_pools;
   pool *p = boxroot_alloc_uninitialised_pool(POOL_SIZE);
@@ -512,11 +500,7 @@ enum { NOT_SETUP, RUNNING, ERROR };
 
 /* Thread-safety: see documented constraints on the use of
    boxroot_setup and boxroot_teardown. */
-#if OCAML_MULTICORE
 static atomic_int status = NOT_SETUP;
-#else
-static int status = NOT_SETUP;
-#endif
 
 static int setup();
 
@@ -1083,7 +1067,7 @@ void boxroot_print_stats()
 static void scanning_callback(scanning_action action, int only_young,
                               void *data)
 {
-  if (status != RUNNING) return;
+  if (load_relaxed(&status) != RUNNING) return;
   int in_minor_collection = boxroot_in_minor_collection();
   if (in_minor_collection) incr(&stats.minor_collections);
   else incr(&stats.major_collections);
@@ -1096,8 +1080,8 @@ static void scanning_callback(scanning_action action, int only_young,
   long long start = time_counter();
   scan_roots(action, only_young, data, dom_id);
   long long duration = time_counter() - start;
-  stat_t *total = in_minor_collection ? &stats.total_minor_time : &stats.total_major_time;
-  stat_t *peak = in_minor_collection ? &stats.peak_minor_time : &stats.peak_major_time;
+  atomic_llong *total = in_minor_collection ? &stats.total_minor_time : &stats.total_major_time;
+  atomic_llong *peak = in_minor_collection ? &stats.peak_minor_time : &stats.peak_major_time;
   *total += duration;
   if (duration > *peak) *peak = duration; // racy, but whatever
   release_pool_rings(dom_id);
@@ -1120,7 +1104,7 @@ static mutex_t init_mutex = BOXROOT_MUTEX_INITIALIZER;
    requires pool lock: NO */
 static int setup()
 {
-  if (status == RUNNING) return 1;
+  if (load_relaxed(&status) == RUNNING) return 1;
   boxroot_mutex_lock(&init_mutex);
   if (status == RUNNING) goto out;
   if (status == ERROR) goto out_err;

@@ -36,37 +36,21 @@
 #ifdef CAML_INTERNALS
 
 #include <assert.h>
+#include <pthread.h>
+#include <stdatomic.h>
 #include <stddef.h>
 #include <caml/mlvalues.h>
 #include <caml/minor_gc.h>
 #include <caml/roots.h>
 
-#if OCAML_MULTICORE
+#define load_relaxed(a) (atomic_load_explicit((a), memory_order_relaxed))
+#define store_relaxed(a, n)                               \
+  (atomic_store_explicit((a), (n), memory_order_relaxed))
+#define incr(a)                                             \
+  (atomic_fetch_add_explicit((a), 1, memory_order_relaxed))
+#define decr(a)                                               \
+  (atomic_fetch_add_explicit((a), -1, memory_order_relaxed))
 
-#include <stdatomic.h>
-
-typedef atomic_llong stat_t;
-
-static inline long long incr(stat_t *n)
-{
-  return 1 + atomic_fetch_add_explicit(n, 1, memory_order_relaxed);
-}
-
-static inline long long decr(stat_t *n)
-{
-  return atomic_fetch_add_explicit(n, -1, memory_order_relaxed) - 1;
-}
-
-#else
-
-typedef long long stat_t;
-
-static inline long long incr(stat_t *n) { return ++(*n); }
-static inline long long decr(stat_t *n) { return --(*n); }
-
-#endif // OCAML_MULTICORE
-
-#include <pthread.h>
 typedef pthread_mutex_t mutex_t;
 #define BOXROOT_MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER;
 

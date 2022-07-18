@@ -55,7 +55,7 @@ inline int boxroot_domain_lock_held(int dom_id)
 #define Add_to_ref_table(dom_st, p)                   \
   Ref_table_add(&dom_st->minor_tables->major_ref, p);
 
-#else // if !OCAML_MULTICORE
+#else
 
 #define CALL_GC_ACTION(action, data, v, p) do {       \
     action(v, p);                                     \
@@ -63,7 +63,7 @@ inline int boxroot_domain_lock_held(int dom_id)
   } while (0)
 #define Add_to_ref_table(dom_st, p) add_to_ref_table(dom_st->ref_table, p)
 
-#endif
+#endif // OCAML_MULTICORE
 
 typedef void (*boxroot_scanning_callback) (scanning_action action,
                                            int only_young, void *data);

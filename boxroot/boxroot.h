@@ -4,6 +4,7 @@
 
 #define CAML_NAME_SPACE
 
+#include <stdatomic.h>
 #include <caml/mlvalues.h>
 #include "ocaml_hooks.h"
 #include "platform.h"
@@ -75,9 +76,7 @@ typedef struct {
   void *end;
   /* length of the list */
   int alloc_count;
-#if OCAML_MULTICORE
   atomic_int domain_id;
-#endif
 } boxroot_fl;
 
 extern boxroot_fl *boxroot_current_fl[Num_domains + 1];
@@ -123,12 +122,9 @@ slow:
 #define Get_pool_header(s)                                \
   ((void *)((uintptr_t)s & ~((uintptr_t)POOL_SIZE - 1)))
 
-#if OCAML_MULTICORE && BOXROOT_MULTITHREAD
-#define dom_id_of_fl(fl) \
-  atomic_load_explicit(&(fl)->domain_id, memory_order_relaxed);
-#else
-#define dom_id_of_fl(fl) ((void)(fl),0)
-#endif
+#define dom_id_of_fl(fl)                                          \
+  (!BOXROOT_MULTITHREAD ? 0 :                                     \
+   atomic_load_explicit(&(fl)->domain_id, memory_order_relaxed))
 
 inline int boxroot_free_slot(boxroot_fl *fl, boxroot root)
 {
