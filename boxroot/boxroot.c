@@ -588,31 +588,32 @@ void boxroot_delete_slow(boxroot root)
 extern inline void boxroot_delete(boxroot root);
 
 /* requires domain lock: YES
-   requires pool lock: YES */
+   requires pool lock: NO */
 static void boxroot_reallocate(boxroot *root, value new_value)
 {
+  DEBUGassert(Caml_state != NULL);
   boxroot old = *root;
   boxroot new = boxroot_create(new_value);
   if (BOXROOT_LIKELY(new != NULL)) {
     *root = new;
     boxroot_delete(old);
   } else {
-    // Better not fail in boxroot_modify. Expensive but fail-safe:
-    // demote its pool into the young pools.
-    pool *p = get_pool_header((slot)old);
-    int dom_id = acquire_pool_rings_of_pool(p);
-    DEBUGassert(p->class == OLD);
-    pool_rings *remote = pools[dom_id];
-    pool **source = (p == remote->old) ? &remote->old : &p;
-    reclassify_pool(source, dom_id, YOUNG);
-    **((value **)root) = new_value;
-    release_pool_rings(dom_id);
+    /* If we are here, then the world is probably falling apart. But
+       we cannot panic here, so better not fail. We add the root to
+       the remembered set. This is a last-resort choice since we
+       cannot amortize this call by calling it only once between two
+       minor collections. */
+    value *p = (value *)old;
+    *p = new_value;
+    /* FIXME: Add_to_ref_table can also fail to reallocate the table,
+       oh well. */
+    Add_to_ref_table(Caml_state, p);
   }
 }
 
 // hot path
 /* TODO: fewer locks? */
-/* requires domain lock: YES
+/* requires domain lock: NO
    requires pool lock: NO */
 void boxroot_modify(boxroot *root, value new_value)
 {
@@ -628,8 +629,9 @@ void boxroot_modify(boxroot *root, value new_value)
     *(value *)s = new_value;
     release_pool_rings(dom_id);
   } else {
-    // We need to reallocate, but this reallocation happens at most once
-    // between two minor collections.
+    /* We need to reallocate, but this reallocation happens at most
+       once between two minor collections. Here one has
+       Is_block(new_value), therefore the domain lock is held. */
     boxroot_reallocate(root, new_value);
   }
 }
