@@ -14,7 +14,7 @@
 #include <caml/domain.h>
 #endif
 
-static_assert(Num_domains < INT_MAX);
+static_assert(Num_domains <= INT_MAX);
 static atomic_int in_minor_collection = 0;
 
 static caml_timing_hook prev_minor_begin_hook = NULL;

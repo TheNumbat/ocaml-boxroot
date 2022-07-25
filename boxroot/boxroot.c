@@ -98,14 +98,19 @@ typedef struct {
 } pool_rings;
 
 /* Constant once allocated. Uses dependency ordering to publish the
-   initialized value (avoid?). (TODO: simplify: separate orphaned) */
-static pool_rings *pools[Num_domains + 1] = { NULL };
-#define Orphaned_id Num_domains
+   initialized value (avoid?). */
+static pool_rings *pools[Num_domains] = { NULL };
+
+/* Holds the live pools of terminated domains until the next GC.
+   Protected by orphan_mutex. (`orphan_pools.mutex` is not used in
+   preparation for a next commit.) */
+static pool_rings orphan;
+static mutex_t orphan_mutex = BOXROOT_MUTEX_INITIALIZER;
 
 static boxroot_fl empty_fl = { (slot)&empty_fl, NULL, -1, -1 };
 
 /* Synchronisation: via domain lock */
-boxroot_fl *boxroot_current_fl[Num_domains + 1];
+boxroot_fl *boxroot_current_fl[Num_domains];
 
 /* requires domain lock: NO
    requires pool lock: NO */
@@ -712,13 +717,12 @@ static void orphan_pools(int dom_id)
   if (local == NULL) return;
   acquire_pool_rings(dom_id);
   gc_pool_rings(dom_id);
-  acquire_pool_rings(Orphaned_id);
-  pool_rings *orphaned = pools[Orphaned_id];
+  boxroot_mutex_lock(&orphan_mutex);
   /* Move active pools to the orphaned pools. TODO: NUMA awareness? */
-  ring_push_back(local->old, &orphaned->old);
-  ring_push_back(local->young, &orphaned->young);
-  ring_push_back(local->current, &orphaned->young);
-  release_pool_rings(Orphaned_id);
+  ring_push_back(local->old, &orphan.old);
+  ring_push_back(local->young, &orphan.young);
+  ring_push_back(local->current, &orphan.young);
+  boxroot_mutex_unlock(&orphan_mutex);
   /* Free the rest */
   free_pool_ring(&local->free);
   /* Reset local pools for later domains spawning with the same id */
@@ -730,13 +734,12 @@ static void orphan_pools(int dom_id)
    requires pool lock: YES (dom_id) */
 static void adopt_orphaned_pools(int dom_id)
 {
-  acquire_pool_rings(Orphaned_id);
-  pool_rings *orphaned = pools[Orphaned_id];
-  while (orphaned->old != NULL)
-    reclassify_pool(&orphaned->old, dom_id, OLD);
-  while (orphaned->young != NULL)
-    reclassify_pool(&orphaned->young, dom_id, YOUNG);
-  release_pool_rings(Orphaned_id);
+  boxroot_mutex_lock(&orphan_mutex);
+  while (orphan.old != NULL)
+    reclassify_pool(&orphan.old, dom_id, OLD);
+  while (orphan.young != NULL)
+    reclassify_pool(&orphan.young, dom_id, YOUNG);
+  boxroot_mutex_unlock(&orphan_mutex);
 }
 
 static void gc_and_reclassify_pool(pool **source, int dom_id)
@@ -1111,9 +1114,6 @@ static int setup()
   if (status == RUNNING) goto out;
   if (status == ERROR) goto out_err;
   boxroot_setup_hooks(&scanning_callback, &domain_termination_callback);
-  /* Domain 0 can be accessed without going through acquire_pool_rings
-     on OCaml 4 without mutex, so we need to initialize it right away. */
-  if (NULL == init_pool_rings(Orphaned_id)) goto out_err;
   // we are done
   status = RUNNING;
   // fall through
@@ -1139,12 +1139,13 @@ void boxroot_teardown()
   boxroot_mutex_lock(&init_mutex);
   if (status != RUNNING) goto out;
   status = ERROR;
-  for (int i = 0; i < Num_domains + 1; i++) {
+  for (int i = 0; i < Num_domains; i++) {
     pool_rings *ps = pools[i];
     if (ps == NULL) continue;
     free_pool_rings(ps);
     free(ps);
   }
+  free_pool_rings(&orphan);
   // fall through
  out:
   boxroot_mutex_unlock(&init_mutex);

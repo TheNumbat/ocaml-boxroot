@@ -79,7 +79,7 @@ typedef struct {
   atomic_int domain_id;
 } boxroot_fl;
 
-extern boxroot_fl *boxroot_current_fl[Num_domains + 1];
+extern boxroot_fl *boxroot_current_fl[Num_domains];
 
 void boxroot_create_debug(value v);
 boxroot boxroot_create_slow(value v);
