@@ -27,6 +27,8 @@
 #include "ocaml_hooks.h"
 #include "platform.h"
 
+static_assert(!BOXROOT_FORCE_REMOTE || BOXROOT_MULTITHREAD);
+
 /* }}} */
 
 /* {{{ Data types */

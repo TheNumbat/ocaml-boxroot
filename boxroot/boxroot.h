@@ -100,7 +100,7 @@ inline boxroot boxroot_create(value init)
   boxroot_create_debug(init);
 #endif
   /* Find current freelist. Synchronized by domain lock. */
-  boxroot_fl *fl = boxroot_current_fl[Domain_id];
+  boxroot_fl *fl = boxroot_current_fl[BOXROOT_MULTITHREAD ? Domain_id : 0];
   if (BOXROOT_UNLIKELY(fl == NULL)) goto slow;
   void *new_root = fl->next;
   if (BOXROOT_UNLIKELY(new_root == fl)) goto slow;
