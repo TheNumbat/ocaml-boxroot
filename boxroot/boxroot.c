@@ -1113,6 +1113,7 @@ void boxroot_teardown()
     if (ps == NULL) continue;
     free_pool_rings(ps);
     free(ps);
+    boxroot_current_fl[i] = NULL;
   }
   free_pool_rings(&orphan);
   // fall through
