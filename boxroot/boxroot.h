@@ -79,7 +79,7 @@ typedef struct {
   void *end;
   /* length of the list */
   int alloc_count;
-  atomic_int domain_id;
+  int domain_id;
 } boxroot_fl;
 
 extern boxroot_fl *boxroot_current_fl[Num_domains];
@@ -125,10 +125,6 @@ slow:
 #define Get_pool_header(s)                                  \
   ((void *)((uintptr_t)(s) & ~((uintptr_t)POOL_SIZE - 1)))
 
-#define dom_id_of_fl(fl)                                          \
-  (!BOXROOT_MULTITHREAD ? 0 :                                     \
-   atomic_load_explicit(&(fl)->domain_id, memory_order_relaxed))
-
 inline int boxroot_free_slot(boxroot_fl *fl, boxroot root)
 {
   /* We have the lock of the domain that owns the pool. */
@@ -150,10 +146,9 @@ inline void boxroot_delete(boxroot root)
   boxroot_delete_debug(root);
 #endif
   boxroot_fl *fl = Get_pool_header(root);
-  int dom_id = dom_id_of_fl(fl);
   int remote =
     BOXROOT_FORCE_REMOTE
-    || (BOXROOT_MULTITHREAD && !boxroot_domain_lock_held(dom_id));
+    || (BOXROOT_MULTITHREAD && !boxroot_domain_lock_held(fl->domain_id));
   if (remote || BOXROOT_UNLIKELY(boxroot_free_slot(fl, root)))
     /* remote deallocation or deallocation threshold */
     boxroot_delete_slow(fl, root, remote);

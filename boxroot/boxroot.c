@@ -146,21 +146,6 @@ static boxroot_fl empty_fl = { (slot)&empty_fl, NULL, -1, -1 };
    lock. */
 boxroot_fl *boxroot_current_fl[Num_domains];
 
-/* requires domain lock: NO
-   requires pool lock: NO */
-static inline int dom_id_of_pool(pool *p)
-{
-  return dom_id_of_fl(&p->free_list);
-}
-
-/* requires domain lock: NO
-   requires pool lock: NO */
-/* TODO: sync not necessary?*/
-static inline void pool_set_dom_id(pool *p, int dom_id)
-{
-  return store_relaxed(&p->free_list.domain_id, dom_id);
-}
-
 /* ownership required: domain */
 // TODO simplify: no return
 static pool_rings * init_pool_rings(int dom_id)
@@ -310,7 +295,7 @@ static pool * get_empty_pool()
   p->free_list.next = p->roots;
   p->free_list.alloc_count = 0;
   p->free_list.end = &p->roots[POOL_CAPACITY - 1];
-  pool_set_dom_id(p, -1);
+  p->free_list.domain_id = -1;
   store_relaxed(&p->delayed_fl.a_next, p);
   store_relaxed(&p->delayed_fl.a_alloc_count, 0);
   p->delayed_fl.end = NULL;
@@ -373,7 +358,7 @@ static void set_current_pool(int dom_id, pool *p)
 {
   DEBUGassert(pools[dom_id]->current == NULL);
   if (p != NULL) {
-    pool_set_dom_id(p, dom_id);
+    p->free_list.domain_id = dom_id;
     pools[dom_id]->current = p;
     p->class = YOUNG;
     boxroot_current_fl[dom_id] = &p->free_list;
@@ -438,7 +423,7 @@ static void reclassify_pool(pool **source, int dom_id, class cl)
   DEBUGassert(*source != NULL);
   pool_rings *local = pools[dom_id];
   pool *p = ring_pop(source);
-  pool_set_dom_id(p, dom_id);
+  p->free_list.domain_id = dom_id;
   pool **target = NULL;
   switch (cl) {
   case OLD: target = &local->old; break;
@@ -674,7 +659,7 @@ static void validate_ring(pool **ring, int dom_id, class cl)
   if (start_pool == NULL) return;
   pool *p = start_pool;
   do {
-    assert(dom_id_of_pool(p) == dom_id);
+    assert(p->free_list.domain_id == dom_id);
     assert(p->class == cl);
     validate_pool(p);
     assert(p->next != NULL);
