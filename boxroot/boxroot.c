@@ -147,19 +147,17 @@ static boxroot_fl empty_fl = { (slot)&empty_fl, NULL, -1, -1 };
 boxroot_fl *boxroot_current_fl[Num_domains];
 
 /* ownership required: domain */
-// TODO simplify: no return
-static pool_rings * init_pool_rings(int dom_id)
+static void init_pool_rings(int dom_id)
 {
   pool_rings *local = pools[dom_id];
   if (local == NULL) local = malloc(sizeof(pool_rings));
-  if (local == NULL) return NULL;
+  if (local == NULL) return;
   local->old = NULL;
   local->young = NULL;
   local->current = NULL;
   local->free = NULL;
   boxroot_current_fl[dom_id] = &empty_fl;
   pools[dom_id] = local;
-  return local;
 }
 
 static struct {
@@ -480,9 +478,9 @@ boxroot boxroot_create_slow(value init)
   boxroot_check_thread_hooks();
 #endif
   int dom_id = Domain_id;
-  pool_rings *local = pools[dom_id];
   /* Initialize pool rings on this domain */
-  if (local == NULL) local = init_pool_rings(dom_id);
+  if (pools[dom_id] == NULL) init_pool_rings(dom_id);
+  pool_rings *local = pools[dom_id];
   if (local == NULL) return NULL;
   if (local->current != NULL) {
     DEBUGassert(is_full_pool(local->current));
