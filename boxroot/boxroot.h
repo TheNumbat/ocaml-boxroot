@@ -53,6 +53,7 @@ inline void boxroot_delete(boxroot);
 
    The OCaml domain lock must be held before calling `boxroot_modify`.
 */
+// TODO: inline
 void boxroot_modify(boxroot *, value);
 
 
@@ -121,7 +122,7 @@ slow:
    power of 2. */
 #define DEALLOC_THRESHOLD ((int)POOL_SIZE / 2)
 
-#define Get_pool_header(s)                                \
+#define Get_pool_header(s)                                  \
   ((void *)((uintptr_t)s & ~((uintptr_t)POOL_SIZE - 1)))
 
 #define dom_id_of_fl(fl)                                          \
@@ -130,6 +131,7 @@ slow:
 
 inline int boxroot_free_slot(boxroot_fl *fl, boxroot root)
 {
+  /* We have the lock of the domain that owns the pool. */
   void **s = (void **)root;
   void *n = (void *)fl->next;
   *s = n;
@@ -140,7 +142,7 @@ inline int boxroot_free_slot(boxroot_fl *fl, boxroot root)
 }
 
 void boxroot_delete_debug(boxroot root);
-void boxroot_delete_slow(boxroot root);
+void boxroot_delete_slow(boxroot_fl *fl, boxroot root, int remote);
 
 inline void boxroot_delete(boxroot root)
 {
@@ -153,7 +155,8 @@ inline void boxroot_delete(boxroot root)
     BOXROOT_FORCE_REMOTE
     || (BOXROOT_MULTITHREAD && !boxroot_domain_lock_held(dom_id));
   if (remote || BOXROOT_UNLIKELY(boxroot_free_slot(fl, root)))
-    boxroot_delete_slow(root);
+    /* remote deallocation or deallocation threshold */
+    boxroot_delete_slow(fl, root, remote);
 }
 
 #endif // BOXROOT_H
