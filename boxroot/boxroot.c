@@ -170,10 +170,12 @@ static struct {
   atomic_llong total_delete_old;
   atomic_llong total_delete_slow;
   atomic_llong total_modify;
+  atomic_llong total_gc_pool_rings;
   atomic_llong total_scanning_work_minor;
   atomic_llong total_scanning_work_major;
   atomic_llong total_minor_time;
   atomic_llong total_major_time;
+  atomic_llong total_gc_pool_time;
   atomic_llong peak_minor_time;
   atomic_llong peak_major_time;
   atomic_llong total_alloced_pools;
@@ -748,11 +750,15 @@ static void gc_ring(pool **ring, int dom_id)
   } while (p != *ring);
 }
 
+static long long time_counter(void);
+
 /* empty the delayed free lists in the chosen pool rings and
    move the pools accordingly */
 /* ownership required: STW */
 static void gc_pool_rings(int dom_id)
 {
+  incr(&stats.total_gc_pool_rings);
+  long long start = time_counter();
   pool_rings *local = pools[dom_id];
   // Heuristic: if a young pool has just been allocated, it is better
   // if it is the first one to be considered the next time a young
@@ -764,6 +770,8 @@ static void gc_pool_rings(int dom_id)
   }
   gc_ring(&local->young, dom_id);
   gc_ring(&local->old, dom_id);
+  long long duration = time_counter() - start;
+  stats.total_gc_pool_time += duration;
 }
 
 // returns the amount of work done
@@ -981,15 +989,19 @@ void boxroot_print_stats()
     average(stats.total_minor_time, stats.minor_collections) / 1000;
   double time_per_major =
     average(stats.total_major_time, stats.major_collections) / 1000;
+  double time_per_gc_pool_rings =
+    average(stats.total_gc_pool_time, stats.total_gc_pool_rings) / 1000;
 
   printf("average time per minor: %'.3fµs\n"
          "average time per major: %'.3fµs\n"
          "peak time per minor: %'.3fµs\n"
-         "peak time per major: %'.3fµs\n",
+         "peak time per major: %'.3fµs\n"
+         "average time per gc_pool_rings: %'.3fµs\n",
          time_per_minor,
          time_per_major,
          ((double)stats.peak_minor_time) / 1000,
-         ((double)stats.peak_major_time) / 1000);
+         ((double)stats.peak_major_time) / 1000,
+         time_per_gc_pool_rings);
 #endif
 
   double ring_operations_per_pool =
@@ -998,11 +1010,13 @@ void boxroot_print_stats()
   printf("total boxroot_create_slow: %'lld\n"
          "total boxroot_delete_slow: %'lld\n"
          "total ring operations: %'lld\n"
-         "ring operations per pool: %.2f\n",
+         "ring operations per pool: %.2f\n"
+         "total gc_pool_rings: %'lld\n",
          stats.total_create_slow,
          stats.total_delete_slow,
          stats.ring_operations,
-         ring_operations_per_pool);
+         ring_operations_per_pool,
+         stats.total_gc_pool_rings);
 
 #if DEBUG
   long long total_create = stats.total_create_young + stats.total_create_old;
