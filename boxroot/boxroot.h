@@ -5,6 +5,7 @@
 #define CAML_NAME_SPACE
 
 #include <stdatomic.h>
+#include <caml/address_class.h>
 #include <caml/mlvalues.h>
 #include "ocaml_hooks.h"
 #include "platform.h"
@@ -53,8 +54,7 @@ inline void boxroot_delete(boxroot);
 
    The OCaml domain lock must be held before calling `boxroot_modify`.
 */
-// TODO: inline
-void boxroot_modify(boxroot *, value);
+inline void boxroot_modify(boxroot *, value);
 
 
 /* `boxroot_teardown()` releases all the resources of Boxroot. None of
@@ -80,7 +80,11 @@ typedef struct {
   /* length of the list */
   int alloc_count;
   int domain_id;
+  /* kept in sync with its location in the pool rings. */
+  int class;
 } boxroot_fl;
+
+#define CLASS_YOUNG 0
 
 extern boxroot_fl *boxroot_current_fl[Num_domains];
 
@@ -152,6 +156,27 @@ inline void boxroot_delete(boxroot root)
   if (remote || BOXROOT_UNLIKELY(boxroot_free_slot(fl, root)))
     /* remote deallocation or deallocation threshold */
     boxroot_delete_slow(fl, root, remote);
+}
+
+void boxroot_modify_debug(boxroot *root);
+void boxroot_modify_slow(boxroot *root, value new_value);
+
+inline void boxroot_modify(boxroot *root, value new_value)
+{
+#if defined(BOXROOT_DEBUG) && (BOXROOT_DEBUG == 1)
+  boxroot_modify_debug(root);
+#endif
+  value *s = (value *)*root;
+  boxroot_fl *fl = Get_pool_header(s);
+  if (BOXROOT_LIKELY(fl->class == CLASS_YOUNG
+                     || !Is_block(new_value)
+                     || !Is_young(new_value))) {
+    *(value *)s = new_value;
+  } else {
+    /* We need to reallocate, but this reallocation happens at most
+       once between two minor collections. */
+    boxroot_modify_slow(root, new_value);
+  }
 }
 
 #endif // BOXROOT_H

@@ -33,11 +33,11 @@ static_assert(!BOXROOT_FORCE_REMOTE || BOXROOT_MULTITHREAD);
 
 /* {{{ Data types */
 
-typedef enum class {
-  YOUNG,
+enum {
+  YOUNG = CLASS_YOUNG,
   OLD,
   UNTRACKED
-} class;
+};
 
 typedef void * slot;
 
@@ -77,9 +77,6 @@ typedef struct pool {
 
   /* Free list, protected by domain lock. */
   boxroot_fl free_list;
-  /* Protected by the lock of its domain, kept in sync with its
-     location in the pool rings. */
-  class class;
   /* Owned by the pool ring. */
   struct pool *prev;
   struct pool *next;
@@ -140,7 +137,7 @@ static pool_rings *pools[Num_domains] = { NULL };
 static pool_rings orphan = { NULL, NULL, NULL, NULL };
 static mutex_t orphan_mutex = BOXROOT_MUTEX_INITIALIZER;
 
-static boxroot_fl empty_fl = { (slot)&empty_fl, NULL, -1, -1 };
+static boxroot_fl empty_fl = { (slot)&empty_fl, NULL, -1, -1, UNTRACKED };
 
 /* Only accessed from one's own domain. Ownership requires the domain
    lock. */
@@ -170,6 +167,7 @@ static struct {
   atomic_llong total_delete_old;
   atomic_llong total_delete_slow;
   atomic_llong total_modify;
+  atomic_llong total_modify_slow;
   atomic_llong total_gc_pool_rings;
   atomic_llong total_scanning_work_minor;
   atomic_llong total_scanning_work_major;
@@ -242,7 +240,7 @@ static inline void ring_push_back(pool *source, pool **target)
   if (*target == NULL) {
     *target = source;
   } else {
-    DEBUGassert((*target)->class == source->class);
+    DEBUGassert((*target)->free_list.class == source->free_list.class);
     pool *target_last = (*target)->prev;
     pool *source_last = source->prev;
     ring_link(target_last, source);
@@ -291,11 +289,11 @@ static pool * get_empty_pool()
   if (p == NULL) return NULL;
   incr(&stats.total_alloced_pools);
   ring_link(p, p);
-  p->class = UNTRACKED;
   p->free_list.next = p->roots;
   p->free_list.alloc_count = 0;
   p->free_list.end = &p->roots[POOL_CAPACITY - 1];
   p->free_list.domain_id = -1;
+  p->free_list.class = UNTRACKED;
   store_relaxed(&p->delayed_fl.a_next, p);
   store_relaxed(&p->delayed_fl.a_alloc_count, 0);
   p->delayed_fl.end = NULL;
@@ -360,24 +358,24 @@ static void set_current_pool(int dom_id, pool *p)
   if (p != NULL) {
     p->free_list.domain_id = dom_id;
     pools[dom_id]->current = p;
-    p->class = YOUNG;
+    p->free_list.class = YOUNG;
     boxroot_current_fl[dom_id] = &p->free_list;
   } else {
     boxroot_current_fl[dom_id] = &empty_fl;
   }
 }
 
-static void reclassify_pool(pool **source, int dom_id, class cl);
+static void reclassify_pool(pool **source, int dom_id, int cl);
 
 /* Move not-too-full pools to the front; move empty pools to the free
    ring. */
 /* ownership required: domain, pool */
 static void try_demote_pool(int dom_id, pool *p)
 {
-  DEBUGassert(p->class != UNTRACKED);
+  DEBUGassert(p->free_list.class != UNTRACKED);
   pool_rings *remote = pools[dom_id];
   if (p == remote->current || !is_not_too_full(p)) return;
-  class cl = (p->free_list.alloc_count == 0) ? UNTRACKED : p->class;
+  int cl = (p->free_list.alloc_count == 0) ? UNTRACKED : p->free_list.class;
   /* If the pool is at the head of its ring, the new head must be
      recorded. */
   pool **source = (p == remote->old) ? &remote->old :
@@ -418,7 +416,7 @@ static void validate_all_pools(int dom_id);
    [dom_id] determined by [class]. Not-too-full pools are pushed to
    the front. */
 /* ownership required: ring, domain */
-static void reclassify_pool(pool **source, int dom_id, class cl)
+static void reclassify_pool(pool **source, int dom_id, int cl)
 {
   DEBUGassert(*source != NULL);
   pool_rings *local = pools[dom_id];
@@ -435,7 +433,7 @@ static void reclassify_pool(pool **source, int dom_id, class cl)
     break;
   }
   /* protected by domain lock */
-  p->class = cl;
+  p->free_list.class = cl;
   ring_push_back(p, target);
   /* make p the new head of [*target] (rotate one step backwards) if
      it is not too full. */
@@ -560,7 +558,7 @@ void boxroot_delete_slow(boxroot_fl *fl, boxroot root, int remote)
   if (!remote) {
     /* We own the domain lock. Deallocation already done, but we
        passed a deallocation threshold. */
-    try_demote_pool(dom_id_of_pool(p), p);
+    try_demote_pool(p->free_list.domain_id, p);
   } else if (OCAML_MULTICORE && boxroot_domain_lock_held_any()) {
     /* Remote, from another domain */
     boxroot_free_slot_atomic(p, root);
@@ -574,10 +572,10 @@ void boxroot_delete_slow(boxroot_fl *fl, boxroot root, int remote)
 
 extern inline void boxroot_delete(boxroot root);
 
-/* ownership required: root */
-static void boxroot_reallocate(boxroot *root, value new_value)
+/* ownership required: root, current domain */
+void boxroot_modify_slow(boxroot *root, value new_value)
 {
-  DEBUGassert(Caml_state != NULL);
+  incr(&stats.total_modify_slow);
   boxroot old = *root;
   boxroot new = boxroot_create(new_value);
   if (BOXROOT_LIKELY(new != NULL)) {
@@ -597,25 +595,14 @@ static void boxroot_reallocate(boxroot *root, value new_value)
   }
 }
 
-// hot path.
-/* ownership required: current domain */
-void boxroot_modify(boxroot *root, value new_value)
+void boxroot_modify_debug(boxroot *root)
 {
-  slot *s = (slot *)*root;
-  pool *p = get_pool_header(s);
-  DEBUGassert(s);
+  DEBUGassert(*root);
   DEBUGassert(boxroot_domain_lock_held_any());
-  if (DEBUG) incr(&stats.total_modify);
-  if (BOXROOT_LIKELY(p->class == YOUNG
-                     || !Is_block(new_value)
-                     || !Is_young(new_value))) {
-    *(value *)s = new_value;
-  } else {
-    /* We need to reallocate, but this reallocation happens at most
-       once between two minor collections. */
-    boxroot_reallocate(root, new_value);
-  }
+  incr(&stats.total_modify);
 }
+
+extern inline void boxroot_modify(boxroot *root, value new_value);
 
 /* }}} */
 
@@ -626,7 +613,7 @@ static void validate_pool(pool *pl)
 {
   if (pl->free_list.next == NULL) {
     // an unintialised pool
-    assert(pl->class == UNTRACKED);
+    assert(pl->free_list.class == UNTRACKED);
     return;
   }
   // check freelist structure and length
@@ -645,7 +632,7 @@ static void validate_pool(pool *pl)
     --stats.is_pool_member;
     if (!is_pool_member(s, pl)) {
       value v = (value)s;
-      if (pl->class != YOUNG && Is_block(v)) assert(!Is_young(v));
+      if (pl->free_list.class != YOUNG && Is_block(v)) assert(!Is_young(v));
       ++count;
     }
   }
@@ -653,14 +640,14 @@ static void validate_pool(pool *pl)
 }
 
 /* ownership required: pool */
-static void validate_ring(pool **ring, int dom_id, class cl)
+static void validate_ring(pool **ring, int dom_id, int cl)
 {
   pool *start_pool = *ring;
   if (start_pool == NULL) return;
   pool *p = start_pool;
   do {
     assert(p->free_list.domain_id == dom_id);
-    assert(p->class == cl);
+    assert(p->free_list.class == cl);
     validate_pool(p);
     assert(p->next != NULL);
     assert(p->next->prev == p);
@@ -715,8 +702,10 @@ static void gc_and_reclassify_pool(pool **source, int dom_id)
 {
   pool *p = *source;
   gc_pool(p);
-  if (p->free_list.alloc_count == 0) reclassify_pool(source, dom_id, UNTRACKED);
-  else if (is_not_too_full(p)) reclassify_pool(source, dom_id, p->class);
+  if (p->free_list.alloc_count == 0)
+    reclassify_pool(source, dom_id, UNTRACKED);
+  else if (is_not_too_full(p))
+    reclassify_pool(source, dom_id, p->free_list.class);
 }
 
 /* empty the delayed free lists in a ring and move the pools
@@ -1009,11 +998,13 @@ void boxroot_print_stats()
 
   printf("total boxroot_create_slow: %'lld\n"
          "total boxroot_delete_slow: %'lld\n"
+         "total boxroot_modify_slow: %'lld\n"
          "total ring operations: %'lld\n"
          "ring operations per pool: %.2f\n"
          "total gc_pool_rings: %'lld\n",
          stats.total_create_slow,
          stats.total_delete_slow,
+         stats.total_modify_slow,
          stats.ring_operations,
          ring_operations_per_pool,
          stats.total_gc_pool_rings);

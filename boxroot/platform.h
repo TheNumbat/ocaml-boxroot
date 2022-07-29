@@ -20,12 +20,19 @@
 
 #if OCAML_MULTICORE
 
+/* for Is_young (https://github.com/ocaml/ocaml/issues/11464)*/
+#include <caml/misc.h>
+CAMLextern uintnat caml_minor_heaps_start;
+CAMLextern uintnat caml_minor_heaps_end;
+
 /* We currently rely on OCaml 5.0 having a max number of domains; this
    is checked for consistency. */
 #define Num_domains 128
 #define Domain_id (Caml_state->id)
 
 #else
+
+#include <caml/address_class.h> // for Is_young
 
 #define Num_domains 1
 #define Domain_id 0
