@@ -123,7 +123,7 @@ slow:
 #define DEALLOC_THRESHOLD ((int)POOL_SIZE / 2)
 
 #define Get_pool_header(s)                                  \
-  ((void *)((uintptr_t)s & ~((uintptr_t)POOL_SIZE - 1)))
+  ((void *)((uintptr_t)(s) & ~((uintptr_t)POOL_SIZE - 1)))
 
 #define dom_id_of_fl(fl)                                          \
   (!BOXROOT_MULTITHREAD ? 0 :                                     \
