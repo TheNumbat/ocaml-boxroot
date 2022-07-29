@@ -7,17 +7,7 @@
 
 #if OCAML_MULTICORE
 
-inline int boxroot_domain_lock_held(int dom_id)
-{
-  caml_domain_state *dom_st = Caml_state_opt;
-  return BOXROOT_LIKELY(dom_st != NULL)
-    && BOXROOT_LIKELY(dom_st->id == dom_id);
-}
-
-inline int boxroot_domain_lock_held_any()
-{
-  return BOXROOT_LIKELY(Caml_state_opt != NULL);
-}
+#define boxroot_domain_lock_held() (BOXROOT_LIKELY(Caml_state_opt != NULL))
 
 #else
 
@@ -40,17 +30,10 @@ CAMLextern void (*caml_leave_blocking_section_hook)(void);
 #define boxroot_hooks_valid()                                           \
   (caml_leave_blocking_section_hook == boxroot_leave_blocking_section)
 
-inline int boxroot_domain_lock_held(int dom_id)
-{
-  (void)dom_id;
-  return  BOXROOT_LIKELY(boxroot_thread_has_lock)
-    && BOXROOT_LIKELY(boxroot_hooks_valid());
-}
-
-inline int boxroot_domain_lock_held_any()
-{
-  return boxroot_domain_lock_held(0);
-}
+#define boxroot_domain_lock_held()                        \
+  (BOXROOT_LIKELY(boxroot_thread_has_lock)                \
+   && BOXROOT_LIKELY(caml_leave_blocking_section_hook     \
+                     == boxroot_leave_blocking_section))
 
 #endif
 

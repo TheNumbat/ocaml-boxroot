@@ -139,9 +139,26 @@ static mutex_t orphan_mutex = BOXROOT_MUTEX_INITIALIZER;
 
 static boxroot_fl empty_fl = { (slot)&empty_fl, NULL, -1, -1, UNTRACKED };
 
+/* We cache the domain id for:
+  - Fast detection of initialization (-1 if not initialized on this domain)
+  - Lookup of current domain id fast and in parallel with other tests
+*/
+_Thread_local ptrdiff_t cached_domain_id = -1;
+
 /* Only accessed from one's own domain. Ownership requires the domain
    lock. */
-boxroot_fl *boxroot_current_fl[Num_domains];
+boxroot_fl *boxroot_current_fl[Num_domains + 1] =
+  { &empty_fl, /* domain -1, always empty (trap for initialization) */
+    &empty_fl, /* domain 0, accessed without initialization when
+                  BOXROOT_MULTITHREAD == 0 */
+    /* NULL...*/ };
+
+/* ownership required: domain */
+static void set_current_fl(int dom_id, boxroot_fl *fl)
+{
+  DEBUGassert(dom_id >= 0 && dom_id < Num_domains);
+  boxroot_current_fl[dom_id + 1] = fl;
+}
 
 /* ownership required: domain */
 static void init_pool_rings(int dom_id)
@@ -153,7 +170,7 @@ static void init_pool_rings(int dom_id)
   local->young = NULL;
   local->current = NULL;
   local->free = NULL;
-  boxroot_current_fl[dom_id] = &empty_fl;
+  set_current_fl(dom_id, &empty_fl);
   pools[dom_id] = local;
 }
 
@@ -371,9 +388,9 @@ static void set_current_pool(int dom_id, pool *p)
     p->free_list.domain_id = dom_id;
     pools[dom_id]->current = p;
     p->free_list.class = YOUNG;
-    boxroot_current_fl[dom_id] = &p->free_list;
+    set_current_fl(dom_id, &p->free_list);
   } else {
-    boxroot_current_fl[dom_id] = &empty_fl;
+    set_current_fl(dom_id, &empty_fl);
   }
 }
 
@@ -496,7 +513,21 @@ boxroot boxroot_create_slow(value init)
   if (pools[dom_id] == NULL) init_pool_rings(dom_id);
   pool_rings *local = pools[dom_id];
   if (local == NULL) return NULL;
+  /* Initialization successful, now cache domain_id on this thread if
+     not done. */
+  if (cached_domain_id == -1) {
+    cached_domain_id = dom_id;
+    /* Perhaps we are here only because the domain id was not cached
+       in the thread-local value. Try again. */
+    return boxroot_create(init);
+  } else {
+    /* A thread cannot belong to two different OCaml domains at separate
+       times (in particular registered threads always belong to domain
+       0). */
+    DEBUGassert(cached_domain_id == dom_id);
+  }
   if (local->current != NULL) {
+    /* Necessarily we are here because the pool is full */
     DEBUGassert(is_full_pool(local->current));
     /* We probably cannot garbage-collect the current pool, since it
        is highly unlikely that all the cells have been freed in the
@@ -520,6 +551,7 @@ boxroot boxroot_create_slow(value init)
   pool *p = find_available_pool(dom_id);
   if (p == NULL) return NULL;
   DEBUGassert(!is_full_pool(p));
+  /* Try again */
   return boxroot_create(init);
 }
 
@@ -586,7 +618,7 @@ void boxroot_delete_slow(boxroot_fl *fl, boxroot root, int remote)
     /* We own the domain lock. Deallocation already done, but we
        passed a deallocation threshold. */
     try_demote_pool(p->free_list.domain_id, p);
-  } else if (OCAML_MULTICORE && boxroot_domain_lock_held_any()) {
+  } else if (OCAML_MULTICORE && boxroot_domain_lock_held()) {
     /* Remote, from another domain */
     boxroot_free_slot_atomic(p, root);
   } else {
@@ -625,7 +657,7 @@ void boxroot_modify_slow(boxroot *root, value new_value)
 void boxroot_modify_debug(boxroot *root)
 {
   DEBUGassert(*root);
-  DEBUGassert(boxroot_domain_lock_held_any());
+  DEBUGassert(boxroot_domain_lock_held());
   incr(&stats.total_modify);
 }
 
@@ -1152,7 +1184,7 @@ void boxroot_teardown()
     if (ps == NULL) continue;
     free_pool_rings(ps);
     free(ps);
-    boxroot_current_fl[i] = NULL;
+    set_current_fl(i, &empty_fl);
   }
   free_pool_rings(&orphan);
   // fall through
