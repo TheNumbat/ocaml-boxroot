@@ -466,6 +466,8 @@ static atomic_int status = NOT_SETUP;
 
 static int setup();
 
+static void try_gc_and_reclassify_one_pool_no_stw(pool **source, int dom_id);
+
 // Set an available pool as current and allocate from it.
 /* ownership required: current domain */
 boxroot boxroot_create_slow(value init)
@@ -484,10 +486,24 @@ boxroot boxroot_create_slow(value init)
   if (local == NULL) return NULL;
   if (local->current != NULL) {
     DEBUGassert(is_full_pool(local->current));
-    /* We cannot garbage-collect the pool now, since it is highly
-       unlikely that all the cells have been freed in the delayed_fl
-       at this point. */
+    /* We probably cannot garbage-collect the current pool, since it
+       is highly unlikely that all the cells have been freed in the
+       delayed_fl at this point. */
     reclassify_pool(&local->current, dom_id, YOUNG);
+    /* Instead, whenever we fill a pool, we do enough work to
+       garbage-collect any one young pool that may have been emptied
+       remotely. This is quick since there are not many young pools.
+
+       The goal is to avoid situations where remote deallocations fill
+       pools faster than we garbage-collect them during STW (minor and
+       major GC). So we do not look at old pools, because
+       (heuristically) if it has time to survive a minor collection
+       then it also has time to be collected during the subsequent
+       minor collection.
+
+       We can still have an excess of sparsely-populated pools due to
+       remote deallocations. */
+    try_gc_and_reclassify_one_pool_no_stw(&local->young, dom_id);
   }
   pool *p = find_available_pool(dom_id);
   if (p == NULL) return NULL;
@@ -538,11 +554,10 @@ static void boxroot_free_slot_atomic(pool *p, boxroot root)
   *new_next = old_next;
   if (BOXROOT_UNLIKELY(is_empty_free_list(old_next, p)))
     p->delayed_fl.end = new_next;
-  /* Note: memory_order_relaxed assumes that the delayed free list is
-     only flushed during STW. Otherwise memory_order_release is needed
-     here (for flushing when the pool is empty). */
-  atomic_fetch_add_explicit(&p->delayed_fl.a_alloc_count, -1,
-                            memory_order_relaxed);
+  /* memory_order_release is needed here for flushing outside of STW
+     sections (when the pool is empty). Otherwise memory_order_relaxed
+     is enough. */
+  decr_release(&p->delayed_fl.a_alloc_count);
 }
 
 void boxroot_delete_domain_remote(boxroot_fl *fl, boxroot root)
@@ -698,6 +713,7 @@ static void adopt_orphaned_pools(int dom_id)
   boxroot_mutex_unlock(&orphan_mutex);
 }
 
+/* ownership required: ring, domain */
 static void gc_and_reclassify_pool(pool **source, int dom_id)
 {
   pool *p = *source;
@@ -706,6 +722,28 @@ static void gc_and_reclassify_pool(pool **source, int dom_id)
     reclassify_pool(source, dom_id, UNTRACKED);
   else if (is_not_too_full(p))
     reclassify_pool(source, dom_id, p->free_list.class);
+}
+
+/* ownership required: ring, domain */
+static void try_gc_and_reclassify_one_pool_no_stw(pool **source, int dom_id)
+{
+  pool *start = *source;
+  pool *p = start;
+  do {
+    int delayed_alloc_count = load_acquire(&p->delayed_fl.a_alloc_count);
+    if (p->free_list.alloc_count + delayed_alloc_count == 0) {
+      /* If the true alloc count is 0, then we own all the slots:
+         nobody will mutate the delayed_fl in parallel. Subsequently,
+         we have found a pool to GC (if delayed_alloc_count is 0 then
+         so is alloc_count, and the pool has already been
+         reclassified). */
+      DEBUGassert(delayed_alloc_count != 0);
+      pool **new_source = (p == start) ? source : &p;
+      gc_and_reclassify_pool(new_source, dom_id);
+      return;
+    }
+    p = p->next;
+  } while (p != start);
 }
 
 /* empty the delayed free lists in a ring and move the pools

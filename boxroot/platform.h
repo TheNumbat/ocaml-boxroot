@@ -53,12 +53,11 @@ CAMLextern uintnat caml_minor_heaps_end;
 #define Cache_line_size 64 /* TODO: platform-dependent */
 
 #define load_relaxed(a) (atomic_load_explicit((a), memory_order_relaxed))
-#define store_relaxed(a, n)                               \
-  (atomic_store_explicit((a), (n), memory_order_relaxed))
-#define incr(a)                                             \
-  (atomic_fetch_add_explicit((a), 1, memory_order_relaxed))
-#define decr(a)                                               \
-  (atomic_fetch_add_explicit((a), -1, memory_order_relaxed))
+#define load_acquire(a) (atomic_load_explicit((a), memory_order_acquire))
+#define store_relaxed(a, n) (atomic_store_explicit((a), (n), memory_order_relaxed))
+#define incr(a) (atomic_fetch_add_explicit((a), 1, memory_order_relaxed))
+#define decr(a) (atomic_fetch_add_explicit((a), -1, memory_order_relaxed))
+#define decr_release(a) (atomic_fetch_add_explicit((a), -1, memory_order_release))
 
 typedef pthread_mutex_t mutex_t;
 #define BOXROOT_MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER;
