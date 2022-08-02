@@ -33,7 +33,7 @@ boxroot boxroot_create(value);
 value boxroot_get(boxroot);
 value const * boxroot_get_ref(boxroot);
 void boxroot_delete(boxroot);
-void boxroot_modify(boxroot *, value);
+int boxroot_modify(boxroot *, value);
 ```
 
 These functions operate in constant time. (This can be compared to the

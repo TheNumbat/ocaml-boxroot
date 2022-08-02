@@ -639,36 +639,24 @@ void boxroot_delete_slow(boxroot_fl *fl, boxroot root, int remote)
 extern inline void boxroot_delete(boxroot root);
 
 /* ownership required: root, current domain */
-void boxroot_modify_slow(boxroot *root, value new_value)
+int boxroot_modify_slow(boxroot *root, value new_value)
 {
   incr(&stats.total_modify_slow);
   boxroot old = *root;
   boxroot new = boxroot_create(new_value);
-  if (BOXROOT_LIKELY(new != NULL)) {
-    *root = new;
-    boxroot_delete(old);
-  } else {
-    /* If we are here, then the world is probably falling apart. But
-       we cannot panic here, so better not fail. We add the root to
-       the remembered set. This is a last-resort choice since we
-       cannot amortize this call by calling it only once between two
-       minor collections. */
-    value *p = (value *)old;
-    *p = new_value;
-    /* FIXME: Add_to_ref_table can also fail to reallocate the table,
-       oh well. */
-    Add_to_ref_table(Caml_state, p);
-  }
+  if (BOXROOT_UNLIKELY(new == NULL)) return 0;
+  *root = new;
+  boxroot_delete(old);
+  return 1;
 }
 
 void boxroot_modify_debug(boxroot *root)
 {
   DEBUGassert(*root);
-  DEBUGassert(boxroot_domain_lock_held());
   incr(&stats.total_modify);
 }
 
-extern inline void boxroot_modify(boxroot *root, value new_value);
+extern inline int boxroot_modify(boxroot *root, value new_value);
 
 /* }}} */
 
