@@ -107,35 +107,54 @@ value is registered as a GC root.
 This benchmark creates a lot of roots alive at the same time.
 
 ```
-$ make run-perm_count TEST_MORE=2
+$ echo OCaml `ocamlc --version` && make run-perm_count TEST_MORE=2
+OCaml 4.14.0
 Benchmark: perm_count
 ---
-boxroot: 1.88s
-gc: 2.17s
-ocaml: 1.79s
-generational: 5.72s
-ocaml_ref: 2.16s
-dll_boxroot: 2.15s
-rem_boxroot: 2.06s
-global: 47.29s
+boxroot: 1.71s
+gc: 1.49s
+ocaml: 1.20s
+generational: 5.90s
+ocaml_ref: 1.47s
+dll_boxroot: 2.13s
+rem_boxroot: 1.97s
+global: 48.19s
 ```
 
 This benchmark allocates 1860 boxroot pools, and performs 1077 minor
-and 18 major collections. Roughly 20M boxroots are allocated.
+and 18 major collections. Roughly 22M boxroots are allocated.
 
 We see that global roots add a large overhead, which is reduced by
 using generational global roots. Boxroots outperform generational
-global roots, and are competitive with the reference implementations
-that do not use roots (ocaml and gc).
+global roots, and give slightly slower time than equivalent pure-GC
+implementations (`ocaml_ref` and `gc`).
 
-It is not expected that `boxroot` outperforms `gc` and `ocaml_ref`.
-Two hypotheses can explain this speedup.
-- `boxroot` might puts less pressure on the GC. It indeed performs 14%
+```
+$ echo OCaml `ocamlc --version` && make run-perm_count TEST_MORE=2
+OCaml 5.0.0+dev6-2022-07-21
+Benchmark: perm_count
+---
+boxroot: 1.42s
+gc: 1.62s
+ocaml: 1.25s
+generational: 5.43s
+ocaml_ref: 1.69s
+dll_boxroot: 1.69s
+rem_boxroot: 1.55s
+global: 49.74s
+```
+
+The OCaml 5.0 performance gives us a hint of considerations entering
+into boxroot's performance. Here `boxroot` unexpectedly outperforms
+`gc` and `ocaml_ref`. Two hypotheses can explain this speedup:
+- `boxroot` puts less pressure on the GC. It indeed performs 14%
   fewer minor collections than `gc`.
-- `boxroot` might improve cache locality during root scanning. The
-  sensitivity to this effect is confirmed by running the benchmark
-  with OCaml 4.14.0, which features data prefetching during major
-  collection (`gc`:1.45s vs. `boxroot`:1.82s).
+- `boxroot` has good cache locality during root scanning. Indeed one
+  major difference with OCaml 4.14 is the absence of prefetching
+  during the major GC. The sensitivity to this effect is confirmed by
+  running the benchmark with OCaml 4.12.0, which also lacks
+  prefetching and shows `boxroot` also outperforming its pure-GC
+  counterparts.
 
 ### Synthetic benchmark
 
@@ -161,28 +180,50 @@ are short-lived. Roots that survive are few, but they are very
 long-lived.
 
 ```
-$ make run-synthetic TEST_MORE=2
+$ echo OCaml `ocamlc --version` && make run-synthetic TEST_MORE=2
+OCaml 4.14.0
 Benchmark: synthetic
 ---
-boxroot: 5.89s
-gc: 6.61s
-ocaml: 5.97s
-generational: 10.44s
-ocaml_ref: 6.74s
-dll_boxroot: 6.42s
-rem_boxroot: 6.01s
-global: 15.20s
+boxroot: 6.19s
+gc: 7.15s
+ocaml: 6.21s
+generational: 10.83s
+ocaml_ref: 7.03s
+dll_boxroot: 6.68s
+rem_boxroot: 6.41s
+global: 15.89s
 ```
 
-This benchmark allocates 761 boxroot pools, and performs 2,634 minor
-and 128 major collections. Roughly 16M roots are allocated.
+This benchmark allocates 772 boxroot pools, and performs 2,619 minor
+and 141 major collections. Roughly 16M roots are allocated.
 
 `boxroot` again performs better than other root implementations, but
 it is unexpected again that it outperforms `ocaml`, `ocaml_ref` and
 `gc`. This is not well-understood.
-- `gc` actually does fewer minor and major collection.
-- Running with a prefetching GC (OCaml 4.14) still shows comparable
+- `gc` does actually fewer minor and major collection.
+- Running with or without a prefetching GC shows comparable
   performance between `boxroot` and `ocaml`.
+
+```
+$ echo OCaml `ocamlc --version` && make run-synthetic TEST_MORE=2
+OCaml 5.0.0+dev6-2022-07-21
+Benchmark: synthetic
+---
+boxroot: 2.86s
+gc: 2.98s
+ocaml: 2.82s
+generational: 4.80s
+ocaml_ref: 2.99s
+dll_boxroot: 3.04s
+rem_boxroot: 3.01s
+global: 6.08s
+```
+
+In multicore, this benchmark allocates 408 boxroot pools, and performs
+2,615 minor and 55 major collections. 8.7M roots are allocated.
+Therefore absolute values are not comparable between major OCaml
+versions. The relative results are similar between OCaml 4.14 and
+OCaml 5.0.
 
 ### Globroot benchmark
 
@@ -198,17 +239,17 @@ work). So the cost of root handling is magnified, it would normally be
 amortized by OCaml computations.
 
 ```
-$ make run-globroots TEST_MORE=2
-Benchmark: globroots
+$ echo OCaml `ocamlc --version` && make run-globroots TEST_MORE=2
+OCaml 4.14.0
 ---
-boxroot: 1.08s
-gc: 1.40s
-ocaml: 0.93s
+boxroot: 1.03s
+gc: 1.35s
+ocaml: 0.89s
 generational: 1.14s
-ocaml_ref: 1.31s
-dll_boxroot: 1.06s
-rem_boxroot: 1.00s
-global: 1.30s
+ocaml_ref: 1.27s
+dll_boxroot: 0.99s
+rem_boxroot: 0.95s
+global: 1.24s
 ```
 
 In this benchmark, there are about 67000 minor collections and 40000
@@ -223,7 +264,25 @@ There used to be a noticeable overhead in this benchmark, but it has
 been reduced with optimizations brought to scanning during minor
 collection.
 
+```
+$ echo OCaml `ocamlc --version` && make run-globroots TEST_MORE=2
+OCaml 5.0.0+dev6-2022-07-21
+Benchmark: globroots
+---
+boxroot: 0.82s
+gc: 1.01s
+ocaml: 0.72s
+generational: 0.92s
+ocaml_ref: 1.02s
+dll_boxroot: 0.84s
+rem_boxroot: 0.78s
+global: 1.34s
+```
+
+
 ![Global roots benchmarks](global.svg)
+
+![Global roots benchmarks](global2.svg)
 
 ### Local roots benchmark
 
@@ -309,8 +368,10 @@ expected by OCaml `external` declarations to a caller-root convention.
 
 The `naive` test uses boxroots in a callee-roots discipline.
 
+
 ```
-$ make run-local_roots TEST_MORE=2
+$ echo OCaml `ocamlc --version` && make run-local_roots TEST_MORE=2
+OCaml 4.14.0
 ```
 
 ![Local roots benchmarks](local.svg)
@@ -342,6 +403,27 @@ Our conclusions:
 Furthermore, we envision that with support from the OCaml compiler for
 the caller-roots discipline, the wrapping responsible for initial
 overhead could be made unnecessary.
+
+```
+$ echo OCaml `ocamlc --version` && make run-local_roots TEST_MORE=2
+OCaml 5.0.0+dev6-2022-07-21
+```
+
+![Local roots benchmarks](local5.svg)
+
+In multicore, we observe similar results. However, the overhead of C
+calls appears to be higher, and (generational) global roots are much
+more expensive since they are protected by a mutex.
+
+We have measured the performance of two alternative implementations:
+- _thread-unsafe_: assume that there is only one thread that never
+  releases the domain lock, and avoid related chekcs in
+  `boxroot_create` and `boxroot_delete`.
+- _force remote_: in the opposite, perform all deallocations as if
+  they were done on a different domain, using the lock-free atomic
+  deallocation path.
+
+![Local roots benchmarks](local5-2.svg)
 
 ## Implementation
 
