@@ -2,11 +2,6 @@
 #ifndef BOXROOT_H
 #define BOXROOT_H
 
-#define CAML_NAME_SPACE
-
-#include <stdatomic.h>
-#include <caml/address_class.h>
-#include <caml/mlvalues.h>
 #include "ocaml_hooks.h"
 #include "platform.h"
 
@@ -58,19 +53,10 @@ inline void boxroot_delete(boxroot);
 */
 inline int boxroot_modify(boxroot *, value);
 
-
 /* `boxroot_teardown()` releases all the resources of Boxroot. None of
    the function above must be called after this. `boxroot_teardown`
    can only be called after OCaml shuts down. */
 void boxroot_teardown();
-
-
-enum {
-  BOXROOT_NOT_SETUP,
-  BOXROOT_RUNNING,
-  BOXROOT_TORE_DOWN,
-  BOXROOT_INVALID
-};
 
 /* For API authors, `boxroot_status()` shows the cause of an
    allocation failure:
@@ -91,15 +77,22 @@ enum {
        - `errno == EPERM`: you tried calling `boxroot_create` or
          `boxroot_modify` without holding the domain lock.
        - `errno == ENOMEM`: allocation failure of the backing store. */
+enum {
+  BOXROOT_NOT_SETUP,
+  BOXROOT_RUNNING,
+  BOXROOT_TORE_DOWN,
+  BOXROOT_INVALID
+};
 int boxroot_status();
 
 /* Show some statistics on the standard output. */
 void boxroot_print_stats();
 
-
 /* Obsolete, does nothing. */
-
 int boxroot_setup();
+
+
+/* ================================================================= */
 
 
 /* Private implementation */

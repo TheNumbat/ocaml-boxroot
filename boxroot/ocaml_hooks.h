@@ -2,7 +2,6 @@
 #ifndef OCAML_HOOKS_H
 #define OCAML_HOOKS_H
 
-#include <caml/mlvalues.h>
 #include "platform.h"
 
 #if OCAML_MULTICORE
@@ -23,7 +22,10 @@ extern _Thread_local int boxroot_thread_has_lock;
 
 #endif
 
+
 #ifdef CAML_INTERNALS
+
+#include <caml/mlvalues.h>
 #include <caml/roots.h>
 #include <caml/signals.h>
 #include <caml/version.h>

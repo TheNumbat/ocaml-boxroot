@@ -2,7 +2,12 @@
 #ifndef BOXROOT_PLATFORM_H
 #define BOXROOT_PLATFORM_H
 
+#define CAML_NAME_SPACE
+
+#include <caml/config.h>
 #include <caml/version.h>
+
+typedef intnat value;
 
 #if defined(__GNUC__)
 #define BOXROOT_LIKELY(a) __builtin_expect(!!(a),1)
@@ -20,11 +25,7 @@
 
 #if OCAML_MULTICORE
 
-/* for Is_young (https://github.com/ocaml/ocaml/issues/11464)*/
-#include <caml/misc.h>
-CAMLextern uintnat caml_minor_heaps_start;
-CAMLextern uintnat caml_minor_heaps_end;
-
+#include <caml/domain_state.h>
 /* We currently rely on OCaml 5.0 having a max number of domains; this
    is checked for consistency. */
 #define Num_domains 128
@@ -32,13 +33,12 @@ CAMLextern uintnat caml_minor_heaps_end;
 
 #else
 
-#include <caml/address_class.h> // for Is_young
-
 #define Num_domains 1
 #define Domain_id 0
 #define Caml_state_opt Caml_state
 
 #endif // OCAML_MULTICORE
+
 
 #ifdef CAML_INTERNALS
 
