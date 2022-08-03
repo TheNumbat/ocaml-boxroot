@@ -62,6 +62,35 @@ inline void boxroot_modify(boxroot *, value);
    can only be called after OCaml shuts down. */
 void boxroot_teardown();
 
+
+enum {
+  BOXROOT_NOT_SETUP,
+  BOXROOT_RUNNING,
+  BOXROOT_TORE_DOWN,
+  BOXROOT_INVALID
+};
+
+/* For API authors, `boxroot_status()` shows the cause of an
+   allocation failure:
+
+   - Permanent failures:
+       - `BOXROOT_TORE_DOWN`: `boxroot_teardown` has been called.
+       - `BOXROOT_INVALID`: in OCaml 4, initializing the thread
+         machinery after Boxroot has been intialized overwrites the
+         hooks we use. Threads should be initialized before Boxroot.
+         Either:
+           - From OCaml, make sure the `Thread` module is already
+             initialized when allocating the first boxroot.
+           - From C, if calling `caml_startup` by hand, then you can
+             call `caml_thread_initialize` immediately afterwards (but
+             only with OCaml 4). With OCaml 5 there is nothing to do.
+
+   - Transient failures (`BOXROOT_RUNNING`), check `errno`:
+       - `errno == EPERM`: you tried calling boxroot_create without
+         holding the domain lock.
+       - `errno == ENOMEM`: allocation failure of the backing store. */
+int boxroot_status();
+
 /* Show some statistics on the standard output. */
 void boxroot_print_stats();
 

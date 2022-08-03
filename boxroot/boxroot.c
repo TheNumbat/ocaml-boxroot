@@ -4,6 +4,7 @@
 // This is emacs folding-mode
 
 #include <assert.h>
+#include <errno.h>
 #include <limits.h>
 #include <stdarg.h>
 #include <stdalign.h>
@@ -487,11 +488,13 @@ static void promote_young_pools(int dom_id)
 
 /* {{{ Allocation, deallocation */
 
-enum { NOT_SETUP, RUNNING, ERROR };
-
 /* Thread-safety: see documented constraints on the use of
    boxroot_setup and boxroot_teardown. */
-static atomic_int status = NOT_SETUP;
+static atomic_int status = BOXROOT_NOT_SETUP;
+
+int boxroot_status() {
+  return load_relaxed(&status);
+}
 
 static int setup();
 
@@ -502,17 +505,21 @@ static void try_gc_and_reclassify_one_pool_no_stw(pool **source, int dom_id);
 boxroot boxroot_create_slow(value init)
 {
   incr(&stats.total_create_slow);
-  if (Caml_state_opt == NULL) return NULL;
+  if (Caml_state_opt == NULL) { errno = EPERM; return NULL; }
   // We might be here because boxroot is not setup.
   if (0 == setup()) return NULL;
 #if !OCAML_MULTICORE
-  boxroot_check_thread_hooks();
+  if (!boxroot_domain_lock_held()) { errno = EPERM; return NULL; }
+  if (!boxroot_check_thread_hooks()) {
+    status = BOXROOT_INVALID;
+    return NULL;
+  }
 #endif
   int dom_id = Domain_id;
   /* Initialize pool rings on this domain */
   if (pools[dom_id] == NULL) init_pool_rings(dom_id);
   pool_rings *local = pools[dom_id];
-  if (local == NULL) return NULL;
+  if (local == NULL) return NULL; /* ENOMEM */
   /* Initialization successful, now cache domain_id on this thread if
      not done. */
   if (cached_domain_id == -1) {
@@ -549,7 +556,7 @@ boxroot boxroot_create_slow(value init)
     try_gc_and_reclassify_one_pool_no_stw(&local->young, dom_id);
   }
   pool *p = find_available_pool(dom_id);
-  if (p == NULL) return NULL;
+  if (p == NULL) return NULL; /* ENOMEM */
   DEBUGassert(!is_full_pool(p));
   /* Try again */
   return boxroot_create(init);
@@ -1119,14 +1126,15 @@ void boxroot_print_stats()
 static void scanning_callback(scanning_action action, int only_young,
                               void *data)
 {
-  if (load_relaxed(&status) != RUNNING) return;
+  if (boxroot_status() == BOXROOT_NOT_SETUP
+      || boxroot_status() == BOXROOT_TORE_DOWN) return;
   int in_minor_collection = boxroot_in_minor_collection();
   if (in_minor_collection) incr(&stats.minor_collections);
   else incr(&stats.major_collections);
   int dom_id = Domain_id;
   if (pools[dom_id] == NULL) return; /* synchronised by domain lock */
 #if !OCAML_MULTICORE
-  boxroot_check_thread_hooks();
+  if (!boxroot_check_thread_hooks()) status = BOXROOT_INVALID;
 #endif
   long long start = time_counter();
   scan_roots(action, only_young, data, dom_id);
@@ -1152,21 +1160,20 @@ static mutex_t init_mutex = BOXROOT_MUTEX_INITIALIZER;
 /* ownership required: current domain */
 static int setup()
 {
-  if (load_relaxed(&status) == RUNNING) return 1;
+  if (boxroot_status() == BOXROOT_RUNNING) return 1;
+  int res = 1;
   boxroot_mutex_lock(&init_mutex);
-  if (status == RUNNING) goto out;
-  if (status == ERROR) goto out_err;
+  if (status != BOXROOT_NOT_SETUP) {
+    res = (status == BOXROOT_RUNNING);
+    goto out;
+  }
   boxroot_setup_hooks(&scanning_callback, &domain_termination_callback);
   // we are done
-  status = RUNNING;
+  status = BOXROOT_RUNNING;
   // fall through
  out:
   boxroot_mutex_unlock(&init_mutex);
-  return 1;
- out_err:
-  status = ERROR;
-  boxroot_mutex_unlock(&init_mutex);
-  return 0;
+  return res;
 }
 
 /* obsolete */
@@ -1177,8 +1184,8 @@ int boxroot_setup() { return 1; }
 void boxroot_teardown()
 {
   boxroot_mutex_lock(&init_mutex);
-  if (status != RUNNING) goto out;
-  status = ERROR;
+  if (status != BOXROOT_RUNNING) goto out;
+  status = BOXROOT_TORE_DOWN;
   for (int i = 0; i < Num_domains; i++) {
     pool_rings *ps = pools[i];
     if (ps == NULL) continue;
