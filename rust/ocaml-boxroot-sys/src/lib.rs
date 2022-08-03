@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: MIT */
 pub type Value = isize;
-pub type BoxRoot = *const Value;
+pub type BoxRoot = std::ptr::NonNull<std::cell::UnsafeCell<Value>>;
 
 extern "C" {
-    pub fn boxroot_create(v: Value) -> BoxRoot;
+    pub fn boxroot_create(v: Value) -> Option<BoxRoot>;
     pub fn boxroot_get(br: BoxRoot) -> Value;
     pub fn boxroot_get_ref(br: BoxRoot) -> *const Value;
     pub fn boxroot_delete(br: BoxRoot);
@@ -47,7 +47,7 @@ mod tests {
 
             caml_startup(c_args.as_ptr());
 
-            let mut br = boxroot_create(1);
+            let mut br = boxroot_create(1).unwrap();
             let v1 = *boxroot_get_ref(br);
 
             boxroot_modify(&mut br, 2);
