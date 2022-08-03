@@ -7,7 +7,7 @@ extern "C" {
     pub fn boxroot_get(br: BoxRoot) -> Value;
     pub fn boxroot_get_ref(br: BoxRoot) -> *const Value;
     pub fn boxroot_delete(br: BoxRoot);
-    pub fn boxroot_modify(br: *mut BoxRoot, v: Value) -> i32;
+    pub fn boxroot_modify(br: *mut BoxRoot, v: Value) -> bool;
     pub fn boxroot_setup();
     pub fn boxroot_teardown();
 }

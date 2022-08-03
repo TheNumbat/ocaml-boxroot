@@ -224,14 +224,14 @@ static inline pool * get_pool_header(slot *s)
 // immediate.
 // hot path
 /* ownership required: none */
-static inline int is_pool_member(slot v, pool *p)
+static inline bool is_pool_member(slot v, pool *p)
 {
   if (DEBUG) incr(&stats.is_pool_member);
   return (uintptr_t)p == ((uintptr_t)v & ~((uintptr_t)POOL_SIZE - 2));
 }
 
 // hot path
-static inline int is_empty_free_list(slot *v, pool *p)
+static inline bool is_empty_free_list(slot *v, pool *p)
 {
   return (v == (slot *)p);
 }
@@ -292,7 +292,7 @@ static pool * ring_pop(pool **target)
 static inline slot empty_free_list(pool *p) { return (slot)p; }
 
 /* ownership required: pool */
-static inline int is_full_pool(pool *p)
+static inline bool is_full_pool(pool *p)
 {
   return is_empty_free_list(p->free_list.next, p);
 }
@@ -376,7 +376,7 @@ static void free_pool_rings(pool_rings *ps)
 /* {{{ Pool class management */
 
 /* ownership required: pool */
-static inline int is_not_too_full(pool *p)
+static inline bool is_not_too_full(pool *p)
 {
   return p->free_list.alloc_count <= (int)(DEALLOC_THRESHOLD / sizeof(slot));
 }
@@ -496,7 +496,7 @@ int boxroot_status() {
   return load_relaxed(&status);
 }
 
-static int setup();
+static bool setup();
 
 static void try_gc_and_reclassify_one_pool_no_stw(pool **source, int dom_id);
 
@@ -580,7 +580,7 @@ void boxroot_create_debug(value init)
 extern inline boxroot boxroot_create(value init);
 
 /* Needed to avoid linking error with Rust */
-extern inline int boxroot_free_slot(boxroot_fl *fl, boxroot root);
+extern inline bool boxroot_free_slot(boxroot_fl *fl, boxroot root);
 
 /* ownership required: root, current domain */
 void boxroot_delete_debug(boxroot root)
@@ -617,7 +617,7 @@ void boxroot_delete_domain_remote(boxroot_fl *fl, boxroot root)
 }
 
 /* ownership required: root, current domain */
-void boxroot_delete_slow(boxroot_fl *fl, boxroot root, int remote)
+void boxroot_delete_slow(boxroot_fl *fl, boxroot root, bool remote)
 {
   incr(&stats.total_delete_slow);
   pool *p = (pool *)fl;
@@ -639,20 +639,20 @@ void boxroot_delete_slow(boxroot_fl *fl, boxroot root, int remote)
 extern inline void boxroot_delete(boxroot root);
 
 /* ownership required: root, current domain */
-int boxroot_modify_slow(boxroot *root, value new_value)
+bool boxroot_modify_slow(boxroot *root, value new_value)
 {
   incr(&stats.total_modify_slow);
   if (!Is_block(new_value) || !Is_young(new_value)) {
     *((value *)(*root)) = new_value;
-    return 1;
+    return true;
   }
   /* The pool is old and the value is young, we need to reallocate */
   boxroot old = *root;
   boxroot new = boxroot_create(new_value);
-  if (BOXROOT_UNLIKELY(new == NULL)) return 0;
+  if (BOXROOT_UNLIKELY(new == NULL)) return false;
   *root = new;
   boxroot_delete(old);
-  return 1;
+  return true;
 }
 
 void boxroot_modify_debug(boxroot *root)
@@ -661,7 +661,7 @@ void boxroot_modify_debug(boxroot *root)
   incr(&stats.total_modify);
 }
 
-extern inline int boxroot_modify(boxroot *root, value new_value);
+extern inline bool boxroot_modify(boxroot *root, value new_value);
 
 /* }}} */
 
@@ -1121,7 +1121,7 @@ static void scanning_callback(scanning_action action, int only_young,
 {
   if (boxroot_status() == BOXROOT_NOT_SETUP
       || boxroot_status() == BOXROOT_TORE_DOWN) return;
-  int in_minor_collection = boxroot_in_minor_collection();
+  bool in_minor_collection = boxroot_in_minor_collection();
   if (in_minor_collection) incr(&stats.minor_collections);
   else incr(&stats.major_collections);
   int dom_id = Domain_id;
@@ -1151,10 +1151,10 @@ static void domain_termination_callback()
 static mutex_t init_mutex = BOXROOT_MUTEX_INITIALIZER;
 
 /* ownership required: current domain */
-static int setup()
+static bool setup()
 {
-  if (boxroot_status() == BOXROOT_RUNNING) return 1;
-  int res = 1;
+  if (boxroot_status() == BOXROOT_RUNNING) return true;
+  bool res = true;
   boxroot_mutex_lock(&init_mutex);
   if (status != BOXROOT_NOT_SETUP) {
     res = (status == BOXROOT_RUNNING);
@@ -1170,7 +1170,7 @@ static int setup()
 }
 
 /* obsolete */
-int boxroot_setup() { return 1; }
+bool boxroot_setup() { return true; }
 
 /* We are sole owner of the pools at this point, no need for
    locking. */

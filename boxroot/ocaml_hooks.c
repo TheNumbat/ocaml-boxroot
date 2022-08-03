@@ -45,7 +45,7 @@ static void record_minor_end()
   if (prev_minor_end_hook != NULL) prev_minor_end_hook();
 }
 
-int boxroot_in_minor_collection()
+bool boxroot_in_minor_collection()
 {
   return load_relaxed(&in_minor_collection) != 0;
 }
@@ -106,21 +106,21 @@ static void boxroot_scan_hook(scanning_action action)
   (*scanning_callback)(action, only_young, NULL);
 }
 
-_Thread_local int boxroot_thread_has_lock = 0;
+_Thread_local bool boxroot_thread_has_lock = false;
 
 static void (*prev_enter_blocking)(void);
 static void (*prev_leave_blocking)(void);
 
 static void boxroot_enter_blocking_section(void)
 {
-  boxroot_thread_has_lock = 0;
+  boxroot_thread_has_lock = false;
   prev_enter_blocking();
 }
 
 static void boxroot_leave_blocking_section(void)
 {
   prev_leave_blocking();
-  boxroot_thread_has_lock = 1;
+  boxroot_thread_has_lock = true;
 }
 
 /* from <caml/signals.h> */
@@ -133,17 +133,17 @@ static void boxroot_setup_thread_hooks()
   prev_enter_blocking = caml_enter_blocking_section_hook;
   caml_leave_blocking_section_hook = boxroot_leave_blocking_section;
   caml_enter_blocking_section_hook = boxroot_enter_blocking_section;
-  boxroot_thread_has_lock = 1;
+  boxroot_thread_has_lock = true;
 }
 
-int boxroot_check_thread_hooks()
+bool boxroot_check_thread_hooks()
 {
   if (caml_leave_blocking_section_hook != boxroot_leave_blocking_section
       || caml_enter_blocking_section_hook != boxroot_enter_blocking_section) {
-    return 0;
+    return false;
     boxroot_setup_thread_hooks();
   }
-  return 1;
+  return true;
 }
 
 void boxroot_setup_hooks(boxroot_scanning_callback scanning,

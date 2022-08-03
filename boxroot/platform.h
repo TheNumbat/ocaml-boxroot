@@ -4,6 +4,7 @@
 
 #define CAML_NAME_SPACE
 
+#include <stdbool.h>
 #include <caml/config.h>
 #include <caml/version.h>
 
@@ -18,9 +19,9 @@ typedef intnat value;
 #endif
 
 #if OCAML_VERSION >= 50000
-#define OCAML_MULTICORE 1
+#define OCAML_MULTICORE true
 #else
-#define OCAML_MULTICORE 0
+#define OCAML_MULTICORE false
 #endif
 
 #if OCAML_MULTICORE
@@ -62,7 +63,7 @@ typedef intnat value;
 typedef pthread_mutex_t mutex_t;
 #define BOXROOT_MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER;
 
-int boxroot_initialize_mutex(mutex_t *mutex);
+bool boxroot_initialize_mutex(mutex_t *mutex);
 void boxroot_mutex_lock(mutex_t *mutex);
 void boxroot_mutex_unlock(mutex_t *mutex);
 
@@ -70,10 +71,10 @@ void boxroot_mutex_unlock(mutex_t *mutex);
    additional statistics? (slow)
    This can be enabled by passing BOXROOT_DEBUG=1 as argument. */
 #if defined(BOXROOT_DEBUG) && (BOXROOT_DEBUG == 1)
-#define DEBUG 1
+#define DEBUG true
 #define DEBUGassert(x) assert(x)
 #else
-#define DEBUG 0
+#define DEBUG false
 #if defined(__GNUC__)
 #define DEBUGassert(x) do { if (!(x)) { __builtin_unreachable(); } } while (0)
 #else

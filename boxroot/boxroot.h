@@ -2,6 +2,7 @@
 #ifndef BOXROOT_H
 #define BOXROOT_H
 
+#include <stdbool.h>
 #include "ocaml_hooks.h"
 #include "platform.h"
 
@@ -48,10 +49,10 @@ inline void boxroot_delete(boxroot);
 
    The OCaml domain lock must be held before calling `boxroot_modify`.
 
-   A return value of `0` indicates that the modification could not
+   A return value of `false` indicates that the modification could not
    take place due to a failure of reallocation (see `boxroot_status`).
 */
-inline int boxroot_modify(boxroot *, value);
+inline bool boxroot_modify(boxroot *, value);
 
 /* `boxroot_teardown()` releases all the resources of Boxroot. None of
    the function above must be called after this. `boxroot_teardown`
@@ -89,7 +90,7 @@ int boxroot_status();
 void boxroot_print_stats();
 
 /* Obsolete, does nothing. */
-int boxroot_setup();
+bool boxroot_setup();
 
 
 /* ================================================================= */
@@ -117,11 +118,11 @@ void boxroot_create_debug(value v);
 boxroot boxroot_create_slow(value v);
 
 /* Test the overheads of multithreading (systhreads and multicore).
-   Purely for experimental purposes. Otherwise should always be 1. */
-#define BOXROOT_MULTITHREAD 1
+   Purely for experimental purposes. Otherwise should always be true. */
+#define BOXROOT_MULTITHREAD true
 /* Make every deallocation a remote deallocation. For testing purposes
    only. Otherwise should always be 0. */
-#define BOXROOT_FORCE_REMOTE 0
+#define BOXROOT_FORCE_REMOTE false
 
 inline boxroot boxroot_create(value init)
 {
@@ -155,7 +156,7 @@ inline boxroot boxroot_create(value init)
 #define Get_pool_header(s)                                  \
   ((void *)((uintptr_t)(s) & ~((uintptr_t)POOL_SIZE - 1)))
 
-inline int boxroot_free_slot(boxroot_fl *fl, boxroot root)
+inline bool boxroot_free_slot(boxroot_fl *fl, boxroot root)
 {
   /* We have the lock of the domain that owns the pool. */
   void **s = (void **)root;
@@ -168,7 +169,7 @@ inline int boxroot_free_slot(boxroot_fl *fl, boxroot root)
 }
 
 void boxroot_delete_debug(boxroot root);
-void boxroot_delete_slow(boxroot_fl *fl, boxroot root, int remote);
+void boxroot_delete_slow(boxroot_fl *fl, boxroot root, bool remote);
 
 inline void boxroot_delete(boxroot root)
 {
@@ -176,8 +177,9 @@ inline void boxroot_delete(boxroot root)
   boxroot_delete_debug(root);
 #endif
   boxroot_fl *fl = Get_pool_header(root);
-  int remote_dom_id = OCAML_MULTICORE ? fl->domain_id != cached_domain_id : 0;
-  int remote =
+  bool remote_dom_id =
+    OCAML_MULTICORE ? fl->domain_id != cached_domain_id : false;
+  bool remote =
     BOXROOT_FORCE_REMOTE
     || (BOXROOT_MULTITHREAD
         && (BOXROOT_UNLIKELY(remote_dom_id) || !boxroot_domain_lock_held()));
@@ -187,9 +189,9 @@ inline void boxroot_delete(boxroot root)
 }
 
 void boxroot_modify_debug(boxroot *root);
-int boxroot_modify_slow(boxroot *root, value new_value);
+bool boxroot_modify_slow(boxroot *root, value new_value);
 
-inline int boxroot_modify(boxroot *root, value new_value)
+inline bool boxroot_modify(boxroot *root, value new_value)
 {
 #if defined(BOXROOT_DEBUG) && (BOXROOT_DEBUG == 1)
   boxroot_modify_debug(root);
