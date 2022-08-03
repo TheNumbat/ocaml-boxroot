@@ -197,14 +197,12 @@ inline int boxroot_modify(boxroot *root, value new_value)
   if (BOXROOT_UNLIKELY(!boxroot_domain_lock_held())) return 0;
   value *s = (value *)*root;
   boxroot_fl *fl = Get_pool_header(s);
-  if (BOXROOT_LIKELY(fl->class == CLASS_YOUNG
-                     || !Is_block(new_value)
-                     || !Is_young(new_value))) {
+  if (BOXROOT_LIKELY(fl->class == CLASS_YOUNG)) {
     *(value *)s = new_value;
     return 1;
   } else {
-    /* We need to reallocate, but this reallocation happens at most
-       once between two minor collections. */
+    /* We might need to reallocate, but this reallocation happens at
+       most once between two minor collections. */
     return boxroot_modify_slow(root, new_value);
   }
 }

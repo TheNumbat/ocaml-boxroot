@@ -642,6 +642,11 @@ extern inline void boxroot_delete(boxroot root);
 int boxroot_modify_slow(boxroot *root, value new_value)
 {
   incr(&stats.total_modify_slow);
+  if (!Is_block(new_value) || !Is_young(new_value)) {
+    *((value *)(*root)) = new_value;
+    return 1;
+  }
+  /* The pool is old and the value is young, we need to reallocate */
   boxroot old = *root;
   boxroot new = boxroot_create(new_value);
   if (BOXROOT_UNLIKELY(new == NULL)) return 0;
