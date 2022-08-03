@@ -8,8 +8,21 @@ extern "C" {
     pub fn boxroot_get_ref(br: BoxRoot) -> *const Value;
     pub fn boxroot_delete(br: BoxRoot);
     pub fn boxroot_modify(br: *mut BoxRoot, v: Value) -> bool;
-    pub fn boxroot_setup();
     pub fn boxroot_teardown();
+    pub fn boxroot_status() -> Status;
+    pub fn boxroot_print_stats();
+
+    /// obsolete
+    pub fn boxroot_setup();
+}
+
+#[repr(C)]
+#[non_exhaustive]
+pub enum Status {
+  NotSetup,
+  Running,
+  ToreDown,
+  Invalid
 }
 
 // Just a test to verify that it compiles and links right
@@ -18,7 +31,7 @@ extern "C" {
 mod tests {
     use crate::{
         boxroot_create, boxroot_delete, boxroot_get, boxroot_get_ref, boxroot_modify,
-        boxroot_setup, boxroot_teardown,
+        boxroot_teardown,
     };
 
     extern "C" {
@@ -33,7 +46,6 @@ mod tests {
             let c_args = vec![arg0, core::ptr::null()];
 
             caml_startup(c_args.as_ptr());
-            boxroot_setup();
 
             let mut br = boxroot_create(1);
             let v1 = *boxroot_get_ref(br);

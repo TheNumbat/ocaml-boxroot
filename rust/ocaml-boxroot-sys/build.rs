@@ -2,10 +2,7 @@
 
 #[cfg(feature = "bundle-boxroot")]
 fn build_boxroot() {
-    println!("cargo:rerun-if-changed=vendor/boxroot/boxroot.c");
-    println!("cargo:rerun-if-changed=vendor/boxroot/boxroot.h");
-    println!("cargo:rerun-if-changed=vendor/boxroot/ocaml_hook.c");
-    println!("cargo:rerun-if-changed=vendor/boxroot/ocaml_hook.h");
+    println!("cargo:rerun-if-changed=vendor/boxroot/");
     println!("cargo:rerun-if-env-changed=OCAMLOPT");
     println!("cargo:rerun-if-env-changed=OCAML_WHERE_PATH");
 
