@@ -66,6 +66,9 @@ single value with the same interface as boxroot (`create`, `get`,
   immediate) containing a global root, and
 - `generational`: idem, but using a generational
   global root.
+
+Older experiments are not thread-safe (at least not efficiently so):
+
 - `dll_boxroot`: a variant of `boxroot`, but using a simpler
   implementation with doubly-linked lists,
 - `rem_boxroot`: a variant of `boxroot`, but using a different
@@ -425,6 +428,14 @@ We have measured the performance of two alternative implementations:
 
 ![Local roots benchmarks](local5-2.svg)
 
+Our thread-safe implementation of Boxroot for OCaml multicore is
+slightly slower than a version that does not performs checks necessary
+for thread-safety. The one where all deallocation are done remotely is
+only slightly slower than Boxroot (although with a much higher pool
+count currently due to the fact that remote deallocation are delayed).
+However this single-threaded benchmark does not let us see the costs
+of cache effects in a multithreaded environment.
+
 ## Implementation
 
 We implemented a custom allocator that manages fairly standard
@@ -471,15 +482,45 @@ Otherwise we prefer to allocate a new pool.
 Care is taken so that programs that do not allocate any root do not
 pay any of the cost.
 
+In OCaml multicore, each domain has its own set of pool rings. Each
+allocation is performed in the domain-local rings. As for
+deallocations, each one is classified into: local, remote domain,
+purely remote. (Improvements have been upstreamed for the release of
+OCaml 5.0 to let us perform this classification efficiently.)
+
+- Local deallocations are done on the same domain and while holding
+  the domain lock. They are performed immediately without any
+  synchronisation necessary.
+- Remote domain deallocations are done from a different domain than
+  the one that has allocated the boxroot. The typical use-case is
+  sending OCaml values between threads, or foreign data structures
+  containing such values. It is done while holding some domain lock,
+  and thus we know that no interference with scanning is possible. It
+  is pushed on an remote free list using an atomic exchange and an
+  atomic increment. The remote free list is pushed back on top of the
+  main free list at the start of scanning, which takes place during a
+  stop-the-world section, when no other remote deallocation can take
+  place.
+- Purely remote deallocations are done without holding the domain
+  lock. The typical use-case is the clean-up of foreign data
+  structures that would store OCaml values while releasing the domain
+  lock, which is rarer, so its performance is secondary. To avoid
+  interference with scanning without making the latter very slow, each
+  pool has a mutex that needs to be locked during purely remote
+  deallocation. This mutex is also locked before scanning the pool. In
+  all other aspects the purely remote deallocation is treated like a
+  remote domain deallocation.
+
 ## Limitations
 
-* Our prototype library uses `posix_memalign`, which currently limits
-  its portability on some systems.
+* This library has only been tested on Linux 64-bit, though it would
+  be easy to port it to other platforms if it does not work right
+  away. Please get in touch for any portability requirement.
 
-* No synchronisation is performed yet in the above benchmarks. In the
-  released version, synchronisation is currently implemented with a
-  global lock not representative of expected performance. We intend to
-  lift this limitation in the future.
+* We have not yet written tests and benchmarks that exercise the
+  multi-threading capability of Boxroot. All our benchmarks were
+  single-threaded, although measuring an implementation which is
+  thread-safe.
 
 * Due to limitations of the GC hook interface, no work has been done
   to scan roots incrementally. Holding a (very!) large number of roots
