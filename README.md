@@ -420,21 +420,31 @@ more expensive since they are protected by a mutex.
 
 We have measured the performance of two alternative implementations:
 - _thread-unsafe_: assume that there is only one thread that never
-  releases the domain lock, and avoid related chekcs in
+  releases the domain lock, and thus avoid related checks in
   `boxroot_create` and `boxroot_delete`.
-- _force remote_: in the opposite, perform all deallocations as if
-  they were done on a different domain, using the lock-free atomic
+- _force remote_: the opposite, perform all deallocations as if they
+  were done on a different domain, using the lock-free atomic
   deallocation path.
 
 ![Local roots benchmarks (impact of multicore support)](local5-2.svg)
 
 Our thread-safe implementation of Boxroot for OCaml multicore is
-slightly slower than a version that does not performs checks necessary
-for thread-safety. The one where all deallocation are done remotely is
-only slightly slower than Boxroot (although with a much higher pool
-count currently due to the fact that remote deallocation are delayed).
-However this single-threaded benchmark does not let us see the costs
-of cache effects in a multithreaded environment.
+slightly slower than a version that does not perform checks necessary
+for thread-safety. The difference is likely lesser in other kinds of
+situations where more time is spent in cache misses.
+
+The implementation where all deallocations are done remotely is only
+slightly slower than Boxroot (although with a much higher pool count
+currently, due to the fact that remote deallocations are delayed until
+the next garbage collection). However this single-threaded benchmark
+does not let us see the costs of cache effects in realistic
+multithreaded scenarios (cache misses and contention).
+
+Our conclusions:
+- The overhead of multithreading support is low enough to propose
+  Boxroot as an all-purpose rooting machanism.
+- The performance of cross-thread deallocation is likely very good,
+  but we need better benchmarks to measure this.
 
 ## Implementation
 
@@ -461,15 +471,25 @@ optimisation when all roots have been found ensures that programs that
 use few roots throughout the life of the program only pay for what
 they use.
 
+### Generational optimisation
+
 The memory pools are managed in several rings, according to their
 *class*. The class distinguishes pools according to OCaml generations,
 as well as pools that are free (which need not be scanned). A pool is
 *young* if it is allowed to contain pointers to the minor heap. During
 minor collection, we only need to scan young pools. At the end of the
 minor collection, the young pools, now guaranteed to no longer point
-to any young value, are promoted into *old* pools. We unconditionally
-allocate roots in young pools, to avoids testing at allocation-time
-whether their initial value is young or old.
+to any young value, are promoted into *old* pools.
+
+We unconditionally allocate roots in young pools, to avoid testing at
+allocation-time whether their initial value is young or old. This test
+is better amortized if done from the collector for two reasons: in
+some situations there may be many more roots allocated than living
+through collections, and there is a way to make this test very
+efficient when done in a tight loop. In addition, we want to inline
+the fast paths of `boxroot_create` and `boxroot_delete`, so we gain in
+reducing code size and avoiding branches that are not statically
+predictible.
 
 The rings are managed in such a manner that pools that are less than
 half-full are rotated to the start of the ring. This ensures that it
@@ -482,10 +502,12 @@ Otherwise we prefer to allocate a new pool.
 Care is taken so that programs that do not allocate any root do not
 pay any of the cost.
 
+### Multicore implementation
+
 In OCaml multicore, each domain has its own set of pool rings. Each
-allocation is performed in the domain-local rings. As for
-deallocations, each one is classified into: local, remote domain,
-purely remote. (Improvements have been upstreamed for the release of
+allocation is performed in the domain-local pools. As for
+deallocations, each one is classified into: _local_, _remote domain_,
+_purely remote_. (Improvements have been upstreamed for the release of
 OCaml 5.0 to let us perform this classification efficiently.)
 
 - Local deallocations are done on the same domain and while holding
