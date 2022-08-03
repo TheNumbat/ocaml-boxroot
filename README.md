@@ -283,9 +283,9 @@ global: 1.34s
 ```
 
 
-![Global roots benchmarks](global.svg)
+![Global roots benchmarks (OCaml 4.14)](global.svg)
 
-![Global roots benchmarks](global2.svg)
+![Global roots benchmarks (OCaml 5.0)](global5.svg)
 
 ### Local roots benchmark
 
@@ -377,7 +377,7 @@ $ echo OCaml `ocamlc --version` && make run-local_roots TEST_MORE=2
 OCaml 4.14.0
 ```
 
-![Local roots benchmarks](local.svg)
+![Local roots benchmarks (OCaml 4.14)](local.svg)
 
 We see that, in this test, despite the up-front cost of wrapping the
 function, `boxroot`s are equivalent to or outperform OCaml's local
@@ -412,7 +412,7 @@ $ echo OCaml `ocamlc --version` && make run-local_roots TEST_MORE=2
 OCaml 5.0.0+dev6-2022-07-21
 ```
 
-![Local roots benchmarks](local5.svg)
+![Local roots benchmarks (OCaml 5.0)](local5.svg)
 
 In multicore, we observe similar results. However, the overhead of C
 calls appears to be higher, and (generational) global roots are much
@@ -426,7 +426,7 @@ We have measured the performance of two alternative implementations:
   they were done on a different domain, using the lock-free atomic
   deallocation path.
 
-![Local roots benchmarks](local5-2.svg)
+![Local roots benchmarks (impact of multicore support)](local5-2.svg)
 
 Our thread-safe implementation of Boxroot for OCaml multicore is
 slightly slower than a version that does not performs checks necessary
