@@ -1,6 +1,12 @@
 /* SPDX-License-Identifier: MIT */
+
+// Do not link to the std unless if running the tests
+#![cfg_attr(
+    not(test),
+    no_std)]
+
 pub type Value = isize;
-pub type BoxRoot = std::ptr::NonNull<std::cell::UnsafeCell<Value>>;
+pub type BoxRoot = core::ptr::NonNull<core::cell::UnsafeCell<Value>>;
 
 extern "C" {
     pub fn boxroot_create(v: Value) -> Option<BoxRoot>;

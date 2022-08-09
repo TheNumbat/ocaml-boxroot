@@ -70,6 +70,11 @@ Working version
 - Declare `package.links` value in Rust crate.
   (Bruno Deferrari, review by Guillaume Munch-Maccagnoni)
 
+- ocaml-boxroot-sys no longer links to the std library (`[no_std]`).
+  Note though that ocaml-boxroot still relies on a system allocator
+  (`posix_memalign`).
+  (Guillaume Munch-Maccagnoni)
+
 
 ocaml-boxroot 0.2
 =================
