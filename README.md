@@ -92,8 +92,8 @@ available!
 
 ### Benchmark information
 
-The figures below are obtained with OCaml 4.12, with CPU AMD Ryzen
-5850U.
+The figures below are obtained with OCaml 4.14 and OCaml 5.0
+(develoment version), with CPU AMD Ryzen 5850U.
 
 ### Permutations of a list
 
@@ -336,33 +336,30 @@ The boxroot version is as follows:
 ```c
 value boxroot_fixpoint(value f, value x)
 {
-  boxroot y = boxroot_fixpoint_rooted(BOX(f), BOX(x));
-  value v = GET(y);
-  DROP(y);
+  boxroot f_root = boxroot_create(f);
+  boxroot x_root = boxroot_create(x);
+  boxroot y = boxroot_fixpoint_rooted(boxroot_get_ref(f), x_root);
+  value v = boxroot_get(y);
+  boxroot_delete(y);
+  boxroot_delete(f_root);
   return v;
 }
 
-#define BOX(v) boxroot_create(v)
-#define GET(b) boxroot_get(b)
-#define DROP(b) boxroot_delete(b)
-
 int compare_refs(value const *x, value const *y);
 
-boxroot boxroot_fixpoint_rooted(boxroot f, boxroot x)
+boxroot boxroot_fixpoint_rooted(value const *f, boxroot x)
 {
-  boxroot y = BOX(caml_callback(GET(f), GET(x)));
-  if (compare_refs(GET_REF(x), GET_REF(y))) {
-    DROP(f);
-    DROP(x);
+  boxroot y = boxroot_create(caml_callback(*f, boxroot_get(x)));
+  if (compare_refs(boxroot_get_ref(x), boxroot_get_ref(y))) {
+    boxroot_delete(x);
     return y;
   } else {
-    DROP(x);
     return boxroot_fixpoint_rooted(f, y);
   }
 }
 ```
-where `compare_refs` does the same work as `compare_val` but does not
-need to root its values.
+where `compare_refs` does the same work as `compare_val` but expects
+its values already rooted.
 
 The work is done by `boxroot_fixpoint_rooted`, but we need a
 `boxroot_fixpoint` wrapper to go from the callee-roots convention
