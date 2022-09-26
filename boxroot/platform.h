@@ -11,35 +11,20 @@
 typedef intnat value;
 
 #if defined(__GNUC__)
-#define BOXROOT_LIKELY(a) __builtin_expect(!!(a),1)
-#define BOXROOT_UNLIKELY(a) __builtin_expect(!!(a),0)
+#define BXR_LIKELY(a) __builtin_expect(!!(a),1)
+#define BXR_UNLIKELY(a) __builtin_expect(!!(a),0)
 #else
-#define BOXROOT_LIKELY(a) (a)
-#define BOXROOT_UNLIKELY(a) (a)
+#define BXR_LIKELY(a) (a)
+#define BXR_UNLIKELY(a) (a)
 #endif
 
 #if OCAML_VERSION >= 50000
+#include <caml/domain_state.h>
 #define OCAML_MULTICORE true
 #else
+#define Caml_state_opt Caml_state
 #define OCAML_MULTICORE false
 #endif
-
-#if OCAML_MULTICORE
-
-#include <caml/domain_state.h>
-/* We currently rely on OCaml 5.0 having a max number of domains; this
-   is checked for consistency. */
-#define Num_domains 128
-#define Domain_id (Caml_state->id)
-
-#else
-
-#define Num_domains 1
-#define Domain_id 0
-#define Caml_state_opt Caml_state
-
-#endif // OCAML_MULTICORE
-
 
 #ifdef CAML_INTERNALS
 
@@ -51,7 +36,22 @@ typedef intnat value;
 #include <caml/minor_gc.h>
 #include <caml/roots.h>
 
-#define Cache_line_size 64 /* TODO: platform-dependent */
+#if OCAML_MULTICORE
+
+/* We currently rely on OCaml 5.0 having a max number of domains; this
+   is checked for consistency. */
+#define Num_domains 128
+#define Domain_id (Caml_state->id)
+
+#else
+
+#define Num_domains 1
+#define Domain_id 0
+
+#endif // OCAML_MULTICORE
+
+#define Cache_line_size 64
+//#define Cache_line_size 128 /* Apple M1, Intel spatial prefetcher since Sandy Bridge */
 
 #define load_relaxed(a) (atomic_load_explicit((a), memory_order_relaxed))
 #define load_acquire(a) (atomic_load_explicit((a), memory_order_acquire))

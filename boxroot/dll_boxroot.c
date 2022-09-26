@@ -274,7 +274,7 @@ static void scan_roots(scanning_action action, void *data)
   int work = 0;
   if (DEBUG) validate_all_rings();
   work += scan_ring(action, data, rings.young);
-  if (boxroot_in_minor_collection()) {
+  if (bxr_in_minor_collection()) {
     ring_push_back(rings.young, &rings.old);
     rings.young = NULL;
     stats.total_scanning_work_minor += work;
@@ -364,7 +364,7 @@ static int setup = 0;
 static void scanning_callback(scanning_action action, int only_young, void *data)
 {
   if (!setup) return;
-  int in_minor_collection = boxroot_in_minor_collection();
+  int in_minor_collection = bxr_in_minor_collection();
   if (in_minor_collection) ++stats.minor_collections;
   else ++stats.major_collections;
   int64_t start = time_counter();
@@ -386,7 +386,7 @@ int dll_boxroot_setup()
   rings.young = NULL;
   rings.old = NULL;
   rings.free = NULL;
-  boxroot_setup_hooks(&scanning_callback, NULL);
+  bxr_setup_hooks(&scanning_callback, NULL);
   // we are done
   setup = 1;
   if (DEBUG) validate_all_rings();

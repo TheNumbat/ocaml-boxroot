@@ -34,8 +34,8 @@
 #include "ocaml_hooks.h"
 #include "platform.h"
 
-#define LIKELY(a) BOXROOT_LIKELY(a)
-#define UNLIKELY(a) BOXROOT_UNLIKELY(a)
+#define LIKELY(a) BXR_LIKELY(a)
+#define UNLIKELY(a) BXR_UNLIKELY(a)
 
 /* }}} */
 
@@ -536,7 +536,7 @@ static void validate(void)
 
 static void scan_pool(scanning_action action, void *data, pool *p)
 {
-  if (boxroot_in_minor_collection()) {
+  if (bxr_in_minor_collection()) {
       /* We use the remembered set for minor boxroots,
          so no scanning is necesary on minor collections.
 
@@ -744,7 +744,7 @@ static void scanning_callback(scanning_action action, int only_young,
     CRITICAL_SECTION_END();
     return;
   }
-  int in_minor_collection = boxroot_in_minor_collection();
+  int in_minor_collection = bxr_in_minor_collection();
 
   if (in_minor_collection) ++stats.minor_collections;
   else ++stats.major_collections;
@@ -779,7 +779,7 @@ int rem_boxroot_setup()
   stats = empty_stats;
   pools = NULL;
   full_pools = NULL;
-  boxroot_setup_hooks(&scanning_callback, NULL);
+  bxr_setup_hooks(&scanning_callback, NULL);
   // we are done
   setup = 1;
   CRITICAL_SECTION_END();

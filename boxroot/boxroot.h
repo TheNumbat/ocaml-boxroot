@@ -7,7 +7,7 @@
 #include "platform.h"
 
 /* `boxroot`s follow an ownership discipline. */
-typedef struct boxroot_private* boxroot;
+typedef struct bxr_private* boxroot;
 
 /* `boxroot_create(v)` allocates a new boxroot initialised to the
    value `v`. This value will be considered as a root by the OCaml GC
@@ -98,53 +98,52 @@ bool boxroot_setup();
 
 /* Private implementation */
 
-/* TODO: name spacing */
-typedef /* _Atomic */ union slot *slot_ref;
+typedef /* _Atomic */ union bxr_slot *bxr_slot_ref;
 
-typedef union slot {
-  slot_ref as_slot_ref;
+typedef union bxr_slot {
+  bxr_slot_ref as_slot_ref;
   value as_value;
-} slot;
+} bxr_slot;
 
-typedef struct boxroot_fl {
-  slot_ref next;
+typedef struct bxr_free_list {
+  bxr_slot_ref next;
   /* if non-empty, points to last cell */
-  slot_ref end;
+  bxr_slot_ref end;
   /* length of the list */
   int alloc_count;
   int domain_id;
   /* kept in sync with its location in the pool rings. */
   int class;
-} boxroot_fl;
+} bxr_free_list;
 
-#define CLASS_YOUNG 0
+#define BXR_CLASS_YOUNG 0
 
-extern _Thread_local ptrdiff_t cached_domain_id;
-extern boxroot_fl *boxroot_current_fl[Num_domains + 1];
+extern _Thread_local ptrdiff_t bxr_cached_dom_id;
+extern bxr_free_list *bxr_current_free_list[/*Num_domains + 1*/];
 
-void boxroot_create_debug(value v);
-boxroot boxroot_create_slow(value v);
+void bxr_create_debug(value v);
+boxroot bxr_create_slow(value v);
 
 /* Test the overheads of multithreading (systhreads and multicore).
    Purely for experimental purposes. Otherwise should always be true. */
-#define BOXROOT_MULTITHREAD true
+#define BXR_MULTITHREAD true
 /* Make every deallocation a remote deallocation. For testing purposes
    only. Otherwise should always be 0. */
-#define BOXROOT_FORCE_REMOTE false
+#define BXR_FORCE_REMOTE false
 
 inline boxroot boxroot_create(value init)
 {
 #if defined(BOXROOT_DEBUG) && (BOXROOT_DEBUG == 1)
-  boxroot_create_debug(init);
+  bxr_create_debug(init);
 #endif
-  /* Find current freelist. Synchronized by domain lock. */
+  /* Find current free_list. Synchronized by domain lock. */
   ptrdiff_t dom_id =
-    (OCAML_MULTICORE && BOXROOT_MULTITHREAD) ? cached_domain_id : 0;
-  boxroot_fl *fl = boxroot_current_fl[dom_id + 1];
-  slot_ref new_root = fl->next;
-  if (BOXROOT_UNLIKELY(!boxroot_domain_lock_held())
-      || BOXROOT_UNLIKELY(new_root == (slot_ref)fl))
-    return boxroot_create_slow(init);
+    (OCAML_MULTICORE && BXR_MULTITHREAD) ? bxr_cached_dom_id : 0;
+  bxr_free_list *fl = bxr_current_free_list[dom_id + 1];
+  bxr_slot_ref new_root = fl->next;
+  if (BXR_UNLIKELY(!bxr_domain_lock_held())
+      || BXR_UNLIKELY(new_root == (bxr_slot_ref)fl))
+    return bxr_create_slow(init);
   fl->next = new_root->as_slot_ref;
   fl->alloc_count++;
   new_root->as_value = init;
@@ -153,67 +152,68 @@ inline boxroot boxroot_create(value init)
 
 /* Log of the size of the pools (12 = 4KB, an OS page).
    Recommended: 14. */
-#define POOL_LOG_SIZE 14
-#define POOL_SIZE ((size_t)1 << POOL_LOG_SIZE)
+#define BXR_POOL_LOG_SIZE 14
+#define BXR_POOL_SIZE ((size_t)1 << BXR_POOL_LOG_SIZE)
 /* Every DEALLOC_THRESHOLD deallocations, make a pool available for
    allocation or demotion into a young pool, or reclassify it as an
    empty pool if empty. Change this with benchmarks in hand. Must be a
    power of 2. */
-#define DEALLOC_THRESHOLD ((int)POOL_SIZE / 2)
+#define BXR_DEALLOC_THRESHOLD ((int)BXR_POOL_SIZE / 2)
 
-#define Get_pool_header(s)                                        \
-  ((boxroot_fl *)((uintptr_t)(s) & ~((uintptr_t)POOL_SIZE - 1)))
+#define Bxr_get_pool_header(s)                                      \
+  ((bxr_free_list *)((uintptr_t)(s) & ~((uintptr_t)BXR_POOL_SIZE - 1)))
 
-inline bool boxroot_free_slot(boxroot_fl *fl, boxroot root)
+inline bool bxr_free_slot(bxr_free_list *fl, boxroot root)
 {
   /* We have the lock of the domain that owns the pool. */
-  slot_ref s = (slot_ref)root;
-  slot_ref next = fl->next;
+  bxr_slot_ref s = (bxr_slot_ref)root;
+  bxr_slot_ref next = fl->next;
   s->as_slot_ref = next;
-  if (BOXROOT_MULTITHREAD && BOXROOT_UNLIKELY(next == (slot_ref)fl)) fl->end = s;
+  if (BXR_MULTITHREAD && BXR_UNLIKELY(next == (bxr_slot_ref)fl))
+    fl->end = s;
   fl->next = s;
   int alloc_count = --fl->alloc_count;
-  return (alloc_count & (DEALLOC_THRESHOLD - 1)) == 0;
+  return (alloc_count & (BXR_DEALLOC_THRESHOLD - 1)) == 0;
 }
 
-void boxroot_delete_debug(boxroot root);
-void boxroot_delete_slow(boxroot_fl *fl, boxroot root, bool remote);
+void bxr_delete_debug(boxroot root);
+void bxr_delete_slow(bxr_free_list *fl, boxroot root, bool remote);
 
 inline void boxroot_delete(boxroot root)
 {
 #if defined(BOXROOT_DEBUG) && (BOXROOT_DEBUG == 1)
-  boxroot_delete_debug(root);
+  bxr_delete_debug(root);
 #endif
-  boxroot_fl *fl = Get_pool_header(root);
+  bxr_free_list *fl = Bxr_get_pool_header(root);
   bool remote_dom_id =
-    OCAML_MULTICORE ? fl->domain_id != cached_domain_id : false;
+    OCAML_MULTICORE ? fl->domain_id != bxr_cached_dom_id : false;
   bool remote =
-    BOXROOT_FORCE_REMOTE
-    || (BOXROOT_MULTITHREAD
-        && (BOXROOT_UNLIKELY(remote_dom_id) || !boxroot_domain_lock_held()));
-  if (remote || BOXROOT_UNLIKELY(boxroot_free_slot(fl, root)))
+    BXR_FORCE_REMOTE
+    || (BXR_MULTITHREAD
+        && (BXR_UNLIKELY(remote_dom_id) || !bxr_domain_lock_held()));
+  if (remote || BXR_UNLIKELY(bxr_free_slot(fl, root)))
     /* remote deallocation or deallocation threshold */
-    boxroot_delete_slow(fl, root, remote);
+    bxr_delete_slow(fl, root, remote);
 }
 
-void boxroot_modify_debug(boxroot *rootp);
-bool boxroot_modify_slow(boxroot *rootp, value new_value);
+void bxr_modify_debug(boxroot *rootp);
+bool bxr_modify_slow(boxroot *rootp, value new_value);
 
 inline bool boxroot_modify(boxroot *rootp, value new_value)
 {
 #if defined(BOXROOT_DEBUG) && (BOXROOT_DEBUG == 1)
-  boxroot_modify_debug(rootp);
+  bxr_modify_debug(rootp);
 #endif
-  if (BOXROOT_UNLIKELY(!boxroot_domain_lock_held())) return 0;
-  slot_ref s = (slot_ref)*rootp;
-  boxroot_fl *fl = Get_pool_header(s);
-  if (BOXROOT_LIKELY(fl->class == CLASS_YOUNG)) {
+  if (BXR_UNLIKELY(!bxr_domain_lock_held())) return 0;
+  bxr_slot_ref s = (bxr_slot_ref)*rootp;
+  bxr_free_list *fl = Bxr_get_pool_header(s);
+  if (BXR_LIKELY(fl->class == BXR_CLASS_YOUNG)) {
     s->as_value = new_value;
     return 1;
   } else {
     /* We might need to reallocate, but this reallocation happens at
        most once between two minor collections. */
-    return boxroot_modify_slow(rootp, new_value);
+    return bxr_modify_slow(rootp, new_value);
   }
 }
 
