@@ -41,12 +41,14 @@ enum {
   UNTRACKED
 };
 
-typedef void * slot;
+struct boxroot_private {
+  /* _Atomic */ slot contents;
+};
 
 typedef struct {
-  _Atomic(void *) a_next;
+  _Atomic(slot_ref) a_next;
   /* if non-empty, points to last cell */
-  void *end;
+  slot_ref end;
   /* length of the list */
   atomic_int a_alloc_count;
 } boxroot_atomic_fl;
@@ -138,7 +140,7 @@ static pool_rings *pools[Num_domains] = { NULL };
 static pool_rings orphan = { NULL, NULL, NULL, NULL };
 static mutex_t orphan_mutex = BOXROOT_MUTEX_INITIALIZER;
 
-static boxroot_fl empty_fl = { (slot)&empty_fl, NULL, -1, -1, UNTRACKED };
+static boxroot_fl empty_fl = { (slot_ref)&empty_fl, NULL, -1, -1, UNTRACKED };
 
 /* We cache the domain id for:
   - Fast detection of initialization (-1 if not initialized on this domain)
@@ -214,10 +216,10 @@ static struct {
 
 // hot path
 /* ownership required: none */
-static inline pool * get_pool_header(slot *s)
+static inline pool * get_pool_header(slot_ref s)
 {
   if (DEBUG) incr(&stats.get_pool_header);
-  return Get_pool_header(s);
+  return (pool *)Get_pool_header(s);
 }
 
 // Return true iff v shares the same msbs as p and is not an
@@ -227,13 +229,13 @@ static inline pool * get_pool_header(slot *s)
 static inline bool is_pool_member(slot v, pool *p)
 {
   if (DEBUG) incr(&stats.is_pool_member);
-  return (uintptr_t)p == ((uintptr_t)v & ~((uintptr_t)POOL_SIZE - 2));
+  return (uintptr_t)p == ((uintptr_t)v.as_slot_ref & ~((uintptr_t)POOL_SIZE - 2));
 }
 
 // hot path
-static inline bool is_empty_free_list(slot *v, pool *p)
+static inline bool is_empty_free_list(slot_ref v, pool *p)
 {
-  return (v == (slot *)p);
+  return (v == (slot_ref)p);
 }
 
 /* }}} */
@@ -289,7 +291,7 @@ static pool * ring_pop(pool **target)
 /* the empty free-list for a pool p is denoted by a pointer to the
    pool itself (NULL could be a valid value for an element slot) */
 /* ownership required: none */
-static inline slot empty_free_list(pool *p) { return (slot)p; }
+static inline slot_ref empty_free_list(pool *p) { return (slot_ref)p; }
 
 /* ownership required: pool */
 static inline bool is_full_pool(pool *p)
@@ -312,14 +314,14 @@ static pool * get_empty_pool()
   p->free_list.end = &p->roots[POOL_CAPACITY - 1];
   p->free_list.domain_id = -1;
   p->free_list.class = UNTRACKED;
-  store_relaxed(&p->delayed_fl.a_next, p);
+  store_relaxed(&p->delayed_fl.a_next, empty_free_list(p));
   store_relaxed(&p->delayed_fl.a_alloc_count, 0);
   p->delayed_fl.end = NULL;
   boxroot_initialize_mutex(&p->mutex);
   /* We end the freelist with a dummy value which satisfies is_pool_member */
-  p->roots[POOL_CAPACITY - 1] = empty_free_list(p);
-  for (slot *s = p->roots + POOL_CAPACITY - 2; s >= p->roots; --s) {
-    *s = (slot)(s + 1);
+  p->roots[POOL_CAPACITY - 1].as_slot_ref = empty_free_list(p);
+  for (slot_ref s = p->roots + POOL_CAPACITY - 2; s >= p->roots; --s) {
+    s->as_slot_ref = s + 1;
   }
   return p;
 }
@@ -344,10 +346,10 @@ static int gc_pool(pool *p)
   if (is_full_pool(p)) p->free_list.end = p->delayed_fl.end;
   p->free_list.alloc_count = anticipated_alloc_count(p);
   store_relaxed(&p->delayed_fl.a_alloc_count, 0);
-  void *list = p->free_list.next;
+  slot_ref list = p->free_list.next;
   p->free_list.next = load_relaxed(&p->delayed_fl.a_next);
-  store_relaxed(&p->delayed_fl.a_next, p);
-  *((slot *)p->delayed_fl.end) = list;
+  store_relaxed(&p->delayed_fl.a_next, empty_free_list(p));
+  p->delayed_fl.end->as_slot_ref = list;
   boxroot_mutex_unlock(&p->mutex);
   return old_alloc_count;
 }
@@ -599,10 +601,10 @@ static void boxroot_free_slot_atomic(pool *p, boxroot root)
   /* Hey how do you avoid a CAS and the ABA problem? Well I only flush
      the delayed free list during stop-the-world sections or when the
      pool is empty! */
-  void **new_next = (void **)root;
-  void *old_next = atomic_exchange_explicit(&p->delayed_fl.a_next, new_next,
-                                            memory_order_relaxed);
-  *new_next = old_next;
+  slot_ref new_next = &root->contents;
+  slot_ref old_next = atomic_exchange_explicit(&p->delayed_fl.a_next, new_next,
+                                               memory_order_relaxed);
+  new_next->as_slot_ref = old_next;
   if (BOXROOT_UNLIKELY(is_empty_free_list(old_next, p)))
     p->delayed_fl.end = new_next;
   /* memory_order_release is needed here for flushing outside of STW
@@ -639,29 +641,31 @@ void boxroot_delete_slow(boxroot_fl *fl, boxroot root, bool remote)
 extern inline void boxroot_delete(boxroot root);
 
 /* ownership required: root, current domain */
-bool boxroot_modify_slow(boxroot *root, value new_value)
+bool boxroot_modify_slow(boxroot *root_ref, value new_value)
 {
   incr(&stats.total_modify_slow);
+  boxroot root = *root_ref;
+  /* If the new value is not a young block, we can substitute. */
   if (!Is_block(new_value) || !Is_young(new_value)) {
-    *((value *)(*root)) = new_value;
+    root->contents.as_value = new_value;
     return true;
   }
-  /* The pool is old and the value is young, we need to reallocate */
-  boxroot old = *root;
+  /* Else, the pool is old and the value is young, so we need to
+     reallocate */
   boxroot new = boxroot_create(new_value);
   if (BOXROOT_UNLIKELY(new == NULL)) return false;
-  *root = new;
-  boxroot_delete(old);
+  *root_ref = new;
+  boxroot_delete(root);
   return true;
 }
 
-void boxroot_modify_debug(boxroot *root)
+void boxroot_modify_debug(boxroot *rootp)
 {
-  DEBUGassert(*root);
+  DEBUGassert(*rootp);
   incr(&stats.total_modify);
 }
 
-extern inline bool boxroot_modify(boxroot *root, value new_value);
+extern inline bool boxroot_modify(boxroot *rootp, value new_value);
 
 /* }}} */
 
@@ -676,9 +680,9 @@ static void validate_pool(pool *pl)
     return;
   }
   // check freelist structure and length
-  slot *curr = pl->free_list.next;
+  slot_ref curr = pl->free_list.next;
   int pos = 0;
-  for (; !is_empty_free_list(curr, pl); curr = (slot*)*curr, pos++)
+  for (; !is_empty_free_list(curr, pl); curr = curr->as_slot_ref, pos++)
   {
     assert(pos < POOL_CAPACITY);
     assert(curr >= pl->roots && curr < pl->roots + POOL_CAPACITY);
@@ -690,7 +694,7 @@ static void validate_pool(pool *pl)
     slot s = pl->roots[i];
     --stats.is_pool_member;
     if (!is_pool_member(s, pl)) {
-      value v = (value)s;
+      value v = s.as_value;
       if (pl->free_list.class != YOUNG && Is_block(v)) assert(!Is_young(v));
       ++count;
     }
@@ -850,16 +854,16 @@ static int scan_pool_gen(scanning_action action, void *data, pool *pl)
 {
   int allocs_to_find = anticipated_alloc_count(pl);
   int young_hit = 0;
-  slot *current = pl->roots;
+  slot_ref current = pl->roots;
   while (allocs_to_find) {
     DEBUGassert(current < &pl->roots[POOL_CAPACITY]);
     // hot path
     slot s = *current;
     if (!is_pool_member(s, pl)) {
       --allocs_to_find;
-      value v = (value)s;
+      value v = s.as_value;
       if (DEBUG && Is_block(v) && Is_young(v)) ++young_hit;
-      CALL_GC_ACTION(action, data, v, (value *)current);
+      CALL_GC_ACTION(action, data, v, &current->as_value);
     }
     ++current;
   }
@@ -888,23 +892,23 @@ static int scan_pool_young(scanning_action action, void *data, pool *pl)
   uintnat young_start = (uintnat)Caml_state->young_start;
   uintnat young_range = (uintnat)Caml_state->young_end - young_start;
 #endif
-  slot *start = pl->roots;
-  slot *end = start + POOL_CAPACITY;
+  slot_ref start = pl->roots;
+  slot_ref end = start + POOL_CAPACITY;
   int young_hit = 0;
-  slot *i;
-  for (i = start; i < end; i++) {
-    slot s = *i;
-    value v = (value)s;
+  slot_ref current;
+  for (current = start; current < end; current++) {
+    slot s = *current;
+    value v = s.as_value;
     /* Optimise for branch prediction: if v falls within the young
        range, then it is likely that it is a block */
     if ((uintnat)v - young_start <= young_range
         && BOXROOT_LIKELY(Is_block(v))) {
       ++young_hit;
-      CALL_GC_ACTION(action, data, v, (value *)i);
+      CALL_GC_ACTION(action, data, v, &current->as_value);
     }
   }
   stats.young_hit_young += young_hit;
-  return i - start;
+  return current - start;
 }
 
 /* ownership required: STW */

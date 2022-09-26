@@ -98,10 +98,18 @@ bool boxroot_setup();
 
 /* Private implementation */
 
-typedef struct {
-  void *next;
+/* TODO: name spacing */
+typedef /* _Atomic */ union slot *slot_ref;
+
+typedef union slot {
+  slot_ref as_slot_ref;
+  value as_value;
+} slot;
+
+typedef struct boxroot_fl {
+  slot_ref next;
   /* if non-empty, points to last cell */
-  void *end;
+  slot_ref end;
   /* length of the list */
   int alloc_count;
   int domain_id;
@@ -133,13 +141,13 @@ inline boxroot boxroot_create(value init)
   ptrdiff_t dom_id =
     (OCAML_MULTICORE && BOXROOT_MULTITHREAD) ? cached_domain_id : 0;
   boxroot_fl *fl = boxroot_current_fl[dom_id + 1];
-  void *new_root = fl->next;
+  slot_ref new_root = fl->next;
   if (BOXROOT_UNLIKELY(!boxroot_domain_lock_held())
-      || BOXROOT_UNLIKELY(new_root == fl))
+      || BOXROOT_UNLIKELY(new_root == (slot_ref)fl))
     return boxroot_create_slow(init);
-  fl->next = *((void **)new_root);
+  fl->next = new_root->as_slot_ref;
   fl->alloc_count++;
-  *((value *)new_root) = init;
+  new_root->as_value = init;
   return (boxroot)new_root;
 }
 
@@ -153,16 +161,16 @@ inline boxroot boxroot_create(value init)
    power of 2. */
 #define DEALLOC_THRESHOLD ((int)POOL_SIZE / 2)
 
-#define Get_pool_header(s)                                  \
-  ((void *)((uintptr_t)(s) & ~((uintptr_t)POOL_SIZE - 1)))
+#define Get_pool_header(s)                                        \
+  ((boxroot_fl *)((uintptr_t)(s) & ~((uintptr_t)POOL_SIZE - 1)))
 
 inline bool boxroot_free_slot(boxroot_fl *fl, boxroot root)
 {
   /* We have the lock of the domain that owns the pool. */
-  void **s = (void **)root;
-  void *n = (void *)fl->next;
-  *s = n;
-  if (BOXROOT_MULTITHREAD && BOXROOT_UNLIKELY(n == fl)) fl->end = s;
+  slot_ref s = (slot_ref)root;
+  slot_ref next = fl->next;
+  s->as_slot_ref = next;
+  if (BOXROOT_MULTITHREAD && BOXROOT_UNLIKELY(next == (slot_ref)fl)) fl->end = s;
   fl->next = s;
   int alloc_count = --fl->alloc_count;
   return (alloc_count & (DEALLOC_THRESHOLD - 1)) == 0;
@@ -188,24 +196,24 @@ inline void boxroot_delete(boxroot root)
     boxroot_delete_slow(fl, root, remote);
 }
 
-void boxroot_modify_debug(boxroot *root);
-bool boxroot_modify_slow(boxroot *root, value new_value);
+void boxroot_modify_debug(boxroot *rootp);
+bool boxroot_modify_slow(boxroot *rootp, value new_value);
 
-inline bool boxroot_modify(boxroot *root, value new_value)
+inline bool boxroot_modify(boxroot *rootp, value new_value)
 {
 #if defined(BOXROOT_DEBUG) && (BOXROOT_DEBUG == 1)
-  boxroot_modify_debug(root);
+  boxroot_modify_debug(rootp);
 #endif
   if (BOXROOT_UNLIKELY(!boxroot_domain_lock_held())) return 0;
-  value *s = (value *)*root;
+  slot_ref s = (slot_ref)*rootp;
   boxroot_fl *fl = Get_pool_header(s);
   if (BOXROOT_LIKELY(fl->class == CLASS_YOUNG)) {
-    *(value *)s = new_value;
+    s->as_value = new_value;
     return 1;
   } else {
     /* We might need to reallocate, but this reallocation happens at
        most once between two minor collections. */
-    return boxroot_modify_slow(root, new_value);
+    return boxroot_modify_slow(rootp, new_value);
   }
 }
 
