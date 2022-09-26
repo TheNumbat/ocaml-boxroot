@@ -1007,9 +1007,10 @@ void boxroot_print_stats()
          "DEBUG: %d\n"
          "OCAML_MULTICORE: %d\n"
          "BXR_MULTITHREAD: %d\n"
-         "WITH_EXPECT: 1\n",
+         "BXR_FORCE_REMOTE: %d\n",
          (int)BXR_POOL_LOG_SIZE, kib_of_pools(1, 1), (int)POOL_CAPACITY,
-         (int)DEBUG, (int)OCAML_MULTICORE, (int)BXR_MULTITHREAD);
+         (int)DEBUG, (int)OCAML_MULTICORE,
+         (int)BXR_MULTITHREAD, (int)BXR_FORCE_REMOTE);
 
   printf("total allocated pools: %'lld (%'lld MiB)\n"
          "peak allocated pools: %'lld (%'lld MiB)\n"
