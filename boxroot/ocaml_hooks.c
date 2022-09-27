@@ -59,7 +59,7 @@ static scan_roots_hook prev_scan_roots_hook = NULL;
 static caml_timing_hook domain_terminated_callback = NULL;
 static caml_timing_hook prev_domain_terminated_hook = NULL;
 
-static void scan_hook(scanning_action action, scanning_action_flags flags,
+static void bxr_scan_hook(scanning_action action, scanning_action_flags flags,
                       void *data, caml_domain_state *dom_st)
 {
   if (prev_scan_roots_hook != NULL) {
@@ -83,7 +83,7 @@ void bxr_setup_hooks(bxr_scanning_callback scanning,
   scanning_callback = scanning;
   // save previous hooks and install ours
   prev_scan_roots_hook = atomic_exchange(&caml_scan_roots_hook,
-                                         scan_hook);
+                                         bxr_scan_hook);
   prev_minor_begin_hook = atomic_exchange(&caml_minor_gc_begin_hook,
                                           record_minor_begin);
   prev_minor_end_hook = atomic_exchange(&caml_minor_gc_end_hook,
@@ -97,7 +97,7 @@ void bxr_setup_hooks(bxr_scanning_callback scanning,
 
 static void (*prev_scan_roots_hook)(scanning_action) = NULL;
 
-static void boxroot_scan_hook(scanning_action action)
+static void bxr_scan_hook(scanning_action action)
 {
   if (prev_scan_roots_hook != NULL) {
     (*prev_scan_roots_hook)(action);
@@ -111,13 +111,13 @@ _Thread_local bool bxr_thread_has_lock = false;
 static void (*prev_enter_blocking)(void);
 static void (*prev_leave_blocking)(void);
 
-static void boxroot_enter_blocking_section(void)
+static void bxr_enter_blocking_section(void)
 {
   bxr_thread_has_lock = false;
   prev_enter_blocking();
 }
 
-static void boxroot_leave_blocking_section(void)
+static void bxr_leave_blocking_section(void)
 {
   prev_leave_blocking();
   bxr_thread_has_lock = true;
@@ -131,15 +131,15 @@ static void setup_thread_hooks()
 {
   prev_leave_blocking = caml_leave_blocking_section_hook;
   prev_enter_blocking = caml_enter_blocking_section_hook;
-  caml_leave_blocking_section_hook = boxroot_leave_blocking_section;
-  caml_enter_blocking_section_hook = boxroot_enter_blocking_section;
+  caml_leave_blocking_section_hook = bxr_leave_blocking_section;
+  caml_enter_blocking_section_hook = bxr_enter_blocking_section;
   bxr_thread_has_lock = true;
 }
 
 bool bxr_check_thread_hooks()
 {
-  if (caml_leave_blocking_section_hook != boxroot_leave_blocking_section
-      || caml_enter_blocking_section_hook != boxroot_enter_blocking_section) {
+  if (caml_leave_blocking_section_hook != bxr_leave_blocking_section
+      || caml_enter_blocking_section_hook != bxr_enter_blocking_section) {
     return false;
     setup_thread_hooks();
   }
@@ -155,7 +155,7 @@ void bxr_setup_hooks(bxr_scanning_callback scanning,
   prev_minor_begin_hook = caml_minor_gc_begin_hook;
   prev_minor_end_hook = caml_minor_gc_end_hook;
   // install our hooks
-  caml_scan_roots_hook = boxroot_scan_hook;
+  caml_scan_roots_hook = bxr_scan_hook;
   caml_minor_gc_begin_hook = record_minor_begin;
   caml_minor_gc_end_hook = record_minor_end;
   setup_thread_hooks();

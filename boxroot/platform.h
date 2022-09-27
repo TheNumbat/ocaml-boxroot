@@ -61,11 +61,11 @@ typedef intnat value;
 #define decr_release(a) (atomic_fetch_add_explicit((a), -1, memory_order_release))
 
 typedef pthread_mutex_t mutex_t;
-#define BOXROOT_MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER;
+#define BXR_MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER;
 
-bool boxroot_initialize_mutex(mutex_t *mutex);
-void boxroot_mutex_lock(mutex_t *mutex);
-void boxroot_mutex_unlock(mutex_t *mutex);
+bool bxr_initialize_mutex(mutex_t *mutex);
+void bxr_mutex_lock(mutex_t *mutex);
+void bxr_mutex_unlock(mutex_t *mutex);
 
 /* Check integrity of pool structure after each scan, and print
    additional statistics? (slow)
@@ -84,8 +84,8 @@ void boxroot_mutex_unlock(mutex_t *mutex);
 
 typedef struct pool pool;
 
-pool* boxroot_alloc_uninitialised_pool(size_t size);
-void boxroot_free_pool(pool *p);
+pool* bxr_alloc_uninitialised_pool(size_t size);
+void bxr_free_pool(pool *p);
 
 #endif // CAML_INTERNALS
 

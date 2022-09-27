@@ -96,7 +96,7 @@ bool boxroot_setup();
 /* ================================================================= */
 
 
-/* Private implementation */
+/* Private implementation. All identifiers starting with bxr_ are private. */
 
 typedef /* _Atomic */ union bxr_slot *bxr_slot_ref;
 

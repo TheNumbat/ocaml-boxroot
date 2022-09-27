@@ -138,7 +138,7 @@ static pool_rings *pools[Num_domains] = { NULL };
 /* Holds the live pools of terminated domains until the next GC.
    Owned by orphan_mutex. */
 static pool_rings orphan = { NULL, NULL, NULL, NULL };
-static mutex_t orphan_mutex = BOXROOT_MUTEX_INITIALIZER;
+static mutex_t orphan_mutex = BXR_MUTEX_INITIALIZER;
 
 static bxr_free_list empty_fl = { (bxr_slot_ref)&empty_fl, NULL, -1, -1, UNTRACKED };
 
@@ -305,7 +305,7 @@ static pool * get_empty_pool()
   long long live_pools = 1 + incr(&stats.live_pools);
   /* racy, but whatever */
   if (live_pools > stats.peak_pools) stats.peak_pools = live_pools;
-  pool *p = boxroot_alloc_uninitialised_pool(BXR_POOL_SIZE);
+  pool *p = bxr_alloc_uninitialised_pool(BXR_POOL_SIZE);
   if (p == NULL) return NULL;
   incr(&stats.total_alloced_pools);
   ring_link(p, p);
@@ -317,7 +317,7 @@ static pool * get_empty_pool()
   store_relaxed(&p->delayed_fl.a_next, empty_free_list(p));
   store_relaxed(&p->delayed_fl.a_alloc_count, 0);
   p->delayed_fl.end = NULL;
-  boxroot_initialize_mutex(&p->mutex);
+  bxr_initialize_mutex(&p->mutex);
   /* We end the free_list with a dummy value which satisfies is_pool_member */
   p->roots[POOL_CAPACITY - 1].as_slot_ref = empty_free_list(p);
   for (bxr_slot_ref s = p->roots + POOL_CAPACITY - 2; s >= p->roots; --s) {
@@ -342,7 +342,7 @@ static int gc_pool(pool *p)
 {
   int old_alloc_count = load_relaxed(&p->delayed_fl.a_alloc_count);
   if (0 == old_alloc_count) return 0;
-  boxroot_mutex_lock(&p->mutex);
+  bxr_mutex_lock(&p->mutex);
   if (is_full_pool(p)) p->free_list.end = p->delayed_fl.end;
   p->free_list.alloc_count = anticipated_alloc_count(p);
   store_relaxed(&p->delayed_fl.a_alloc_count, 0);
@@ -350,7 +350,7 @@ static int gc_pool(pool *p)
   p->free_list.next = load_relaxed(&p->delayed_fl.a_next);
   store_relaxed(&p->delayed_fl.a_next, empty_free_list(p));
   p->delayed_fl.end->as_slot_ref = list;
-  boxroot_mutex_unlock(&p->mutex);
+  bxr_mutex_unlock(&p->mutex);
   return old_alloc_count;
 }
 
@@ -359,7 +359,7 @@ static void free_pool_ring(pool **ring)
 {
   while (*ring != NULL) {
     pool *p = ring_pop(ring);
-    boxroot_free_pool(p);
+    bxr_free_pool(p);
     incr(&stats.total_freed_pools);
   }
 }
@@ -494,7 +494,8 @@ static void promote_young_pools(int dom_id)
    boxroot_setup and boxroot_teardown. */
 static atomic_int status = BOXROOT_NOT_SETUP;
 
-int boxroot_status() {
+int boxroot_status()
+{
   return load_relaxed(&status);
 }
 
@@ -627,9 +628,9 @@ void bxr_delete_slow(bxr_free_list *fl, boxroot root, bool remote)
     free_slot_atomic(p, root);
   } else {
     /* No domain lock held */
-    boxroot_mutex_lock(&p->mutex);
+    bxr_mutex_lock(&p->mutex);
     free_slot_atomic(p, root);
-    boxroot_mutex_unlock(&p->mutex);
+    bxr_mutex_unlock(&p->mutex);
   }
 }
 
@@ -733,12 +734,12 @@ static void orphan_pools(int dom_id)
   pool_rings *local = pools[dom_id];
   if (local == NULL) return;
   gc_pool_rings(dom_id);
-  boxroot_mutex_lock(&orphan_mutex);
+  bxr_mutex_lock(&orphan_mutex);
   /* Move active pools to the orphaned pools. TODO: NUMA awareness? */
   ring_push_back(local->old, &orphan.old);
   ring_push_back(local->young, &orphan.young);
   ring_push_back(local->current, &orphan.young);
-  boxroot_mutex_unlock(&orphan_mutex);
+  bxr_mutex_unlock(&orphan_mutex);
   /* Free the rest */
   free_pool_ring(&local->free);
   /* Reset local pools for later domains spawning with the same id */
@@ -748,12 +749,12 @@ static void orphan_pools(int dom_id)
 /* ownership required: domain */
 static void adopt_orphaned_pools(int dom_id)
 {
-  boxroot_mutex_lock(&orphan_mutex);
+  bxr_mutex_lock(&orphan_mutex);
   while (orphan.old != NULL)
     reclassify_pool(&orphan.old, dom_id, OLD);
   while (orphan.young != NULL)
     reclassify_pool(&orphan.young, dom_id, YOUNG);
-  boxroot_mutex_unlock(&orphan_mutex);
+  bxr_mutex_unlock(&orphan_mutex);
 }
 
 /* ownership required: like gc_pool + ring */
@@ -910,10 +911,10 @@ static int scan_pool_young(scanning_action action, void *data, pool *pl)
 static int scan_pool(scanning_action action, int only_young, void *data,
                      pool *pl)
 {
-  boxroot_mutex_lock(&pl->mutex);
+  bxr_mutex_lock(&pl->mutex);
   int work = (only_young) ? scan_pool_young(action, data, pl)
                           : scan_pool_gen(action, data, pl);
-  boxroot_mutex_unlock(&pl->mutex);
+  bxr_mutex_unlock(&pl->mutex);
   return work;
 }
 
@@ -1148,14 +1149,14 @@ static void domain_termination_callback()
 }
 
 /* Used for initialization/teardown */
-static mutex_t init_mutex = BOXROOT_MUTEX_INITIALIZER;
+static mutex_t init_mutex = BXR_MUTEX_INITIALIZER;
 
 /* ownership required: current domain */
 static bool setup()
 {
   if (boxroot_status() == BOXROOT_RUNNING) return true;
   bool res = true;
-  boxroot_mutex_lock(&init_mutex);
+  bxr_mutex_lock(&init_mutex);
   if (status != BOXROOT_NOT_SETUP) {
     res = (status == BOXROOT_RUNNING);
     goto out;
@@ -1165,7 +1166,7 @@ static bool setup()
   status = BOXROOT_RUNNING;
   // fall through
  out:
-  boxroot_mutex_unlock(&init_mutex);
+  bxr_mutex_unlock(&init_mutex);
   return res;
 }
 
@@ -1176,7 +1177,7 @@ bool boxroot_setup() { return true; }
    locking. */
 void boxroot_teardown()
 {
-  boxroot_mutex_lock(&init_mutex);
+  bxr_mutex_lock(&init_mutex);
   if (status != BOXROOT_RUNNING) goto out;
   status = BOXROOT_TORE_DOWN;
   for (int i = 0; i < Num_domains; i++) {
@@ -1189,7 +1190,7 @@ void boxroot_teardown()
   free_pool_rings(&orphan);
   // fall through
  out:
-  boxroot_mutex_unlock(&init_mutex);
+  bxr_mutex_unlock(&init_mutex);
 }
 
 /* }}} */
