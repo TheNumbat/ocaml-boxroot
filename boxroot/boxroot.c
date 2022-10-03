@@ -306,14 +306,21 @@ static pool * get_empty_pool()
   return p;
 }
 
-/* ownership required: all domains (or the current domain + knowledge
+/* ownership required: STW (or the current domain lock + knowledge
+   that no other thread owns slots) */
+static int anticipated_alloc_count(pool *p)
+{
+  return p->free_list.alloc_count + load_relaxed(&p->delayed_fl.a_alloc_count);
+}
+
+/* ownership required: STW (or the current domain lock + knowledge
    that no other thread owns slots) */
 static void gc_pool(pool *p)
 {
   if (0 == load_relaxed(&p->delayed_fl.a_alloc_count)) return;
   boxroot_mutex_lock(&p->mutex);
   if (is_full_pool(p)) p->free_list.end = p->delayed_fl.end;
-  p->free_list.alloc_count += load_relaxed(&p->delayed_fl.a_alloc_count);
+  p->free_list.alloc_count = anticipated_alloc_count(p);
   store_relaxed(&p->delayed_fl.a_alloc_count, 0);
   void *list = p->free_list.next;
   p->free_list.next = load_relaxed(&p->delayed_fl.a_next);
@@ -651,7 +658,7 @@ static void validate_pool(pool *pl)
       ++count;
     }
   }
-  assert(count == pl->free_list.alloc_count);
+  assert(count == anticipated_alloc_count(pl));
 }
 
 /* ownership required: pool */
@@ -730,14 +737,14 @@ static void try_gc_and_reclassify_one_pool_no_stw(pool **source, int dom_id)
   pool *start = *source;
   pool *p = start;
   do {
-    int delayed_alloc_count = load_acquire(&p->delayed_fl.a_alloc_count);
-    if (p->free_list.alloc_count + delayed_alloc_count == 0) {
+    if (anticipated_alloc_count(p) == 0) {
       /* If the true alloc count is 0, then we own all the slots:
          nobody will mutate the delayed_fl in parallel. Subsequently,
          we have found a pool to GC (if delayed_alloc_count is 0 then
          so is alloc_count, and the pool has already been
          reclassified). */
-      DEBUGassert(delayed_alloc_count != 0);
+      /* Synchronize with free_slot_atomic */
+      atomic_thread_fence(memory_order_acquire);
       pool **new_source = (p == start) ? source : &p;
       gc_and_reclassify_pool(new_source, dom_id);
       return;
@@ -805,8 +812,7 @@ static void gc_pool_rings(int dom_id)
 /* ownership required: STW, pool mutex */
 static int scan_pool_gen(scanning_action action, void *data, pool *pl)
 {
-  int allocs_to_find =
-    pl->free_list.alloc_count + load_relaxed(&pl->delayed_fl.a_alloc_count);
+  int allocs_to_find = anticipated_alloc_count(pl);
   int young_hit = 0;
   slot *current = pl->roots;
   while (allocs_to_find) {
