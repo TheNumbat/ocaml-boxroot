@@ -20,12 +20,19 @@
 
 #if OCAML_MULTICORE
 
+/* for Is_young (https://github.com/ocaml/ocaml/issues/11464)*/
+#include <caml/misc.h>
+CAMLextern uintnat caml_minor_heaps_start;
+CAMLextern uintnat caml_minor_heaps_end;
+
 /* We currently rely on OCaml 5.0 having a max number of domains; this
    is checked for consistency. */
 #define Num_domains 128
 #define Domain_id (Caml_state->id)
 
 #else
+
+#include <caml/address_class.h> // for Is_young
 
 #define Num_domains 1
 #define Domain_id 0
@@ -36,37 +43,22 @@
 #ifdef CAML_INTERNALS
 
 #include <assert.h>
+#include <pthread.h>
+#include <stdatomic.h>
 #include <stddef.h>
 #include <caml/mlvalues.h>
 #include <caml/minor_gc.h>
 #include <caml/roots.h>
 
-#if OCAML_MULTICORE
+#define Cache_line_size 64 /* TODO: platform-dependent */
 
-#include <stdatomic.h>
+#define load_relaxed(a) (atomic_load_explicit((a), memory_order_relaxed))
+#define load_acquire(a) (atomic_load_explicit((a), memory_order_acquire))
+#define store_relaxed(a, n) (atomic_store_explicit((a), (n), memory_order_relaxed))
+#define incr(a) (atomic_fetch_add_explicit((a), 1, memory_order_relaxed))
+#define decr(a) (atomic_fetch_add_explicit((a), -1, memory_order_relaxed))
+#define decr_release(a) (atomic_fetch_add_explicit((a), -1, memory_order_release))
 
-typedef atomic_llong stat_t;
-
-static inline long long incr(stat_t *n)
-{
-  return 1 + atomic_fetch_add_explicit(n, 1, memory_order_relaxed);
-}
-
-static inline long long decr(stat_t *n)
-{
-  return atomic_fetch_add_explicit(n, -1, memory_order_relaxed) - 1;
-}
-
-#else
-
-typedef long long stat_t;
-
-static inline long long incr(stat_t *n) { return ++(*n); }
-static inline long long decr(stat_t *n) { return --(*n); }
-
-#endif // OCAML_MULTICORE
-
-#include <pthread.h>
 typedef pthread_mutex_t mutex_t;
 #define BOXROOT_MUTEX_INITIALIZER PTHREAD_MUTEX_INITIALIZER;
 

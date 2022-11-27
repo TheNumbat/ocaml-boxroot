@@ -4,10 +4,13 @@
 
 #define CAML_NAME_SPACE
 
+#include <stdatomic.h>
+#include <caml/address_class.h>
 #include <caml/mlvalues.h>
 #include "ocaml_hooks.h"
 #include "platform.h"
 
+/* `boxroot`s follow an ownership discipline. */
 typedef struct boxroot_private* boxroot;
 
 /* `boxroot_create(v)` allocates a new boxroot initialised to the
@@ -25,7 +28,8 @@ inline boxroot boxroot_create(value);
    pointer becomes invalid after any call to `boxroot_delete(r)` or
    `boxroot_modify(&r,v)`. The argument must be non-null.
 
-   The OCaml domain lock must be held before calling `boxroot_get*`.
+   The OCaml domain lock must be held before calling `boxroot_get` or
+   before deferencing the result of `boxroot_get_ref`.
 */
 inline value boxroot_get(boxroot r) { return *(value *)r; }
 inline value const * boxroot_get_ref(boxroot r) { return (value *)r; }
@@ -50,7 +54,7 @@ inline void boxroot_delete(boxroot);
 
    The OCaml domain lock must be held before calling `boxroot_modify`.
 */
-void boxroot_modify(boxroot *, value);
+inline void boxroot_modify(boxroot *, value);
 
 
 /* `boxroot_teardown()` releases all the resources of Boxroot. None of
@@ -75,12 +79,14 @@ typedef struct {
   void *end;
   /* length of the list */
   int alloc_count;
-#if OCAML_MULTICORE
-  atomic_int domain_id;
-#endif
+  int domain_id;
+  /* kept in sync with its location in the pool rings. */
+  int class;
 } boxroot_fl;
 
-extern boxroot_fl *boxroot_current_fl[Num_domains + 1];
+#define CLASS_YOUNG 0
+
+extern boxroot_fl *boxroot_current_fl[Num_domains];
 
 void boxroot_create_debug(value v);
 boxroot boxroot_create_slow(value v);
@@ -98,7 +104,7 @@ inline boxroot boxroot_create(value init)
   boxroot_create_debug(init);
 #endif
   /* Find current freelist. Synchronized by domain lock. */
-  boxroot_fl *fl = boxroot_current_fl[Domain_id];
+  boxroot_fl *fl = boxroot_current_fl[BOXROOT_MULTITHREAD ? Domain_id : 0];
   if (BOXROOT_UNLIKELY(fl == NULL)) goto slow;
   void *new_root = fl->next;
   if (BOXROOT_UNLIKELY(new_root == fl)) goto slow;
@@ -120,18 +126,12 @@ slow:
    power of 2. */
 #define DEALLOC_THRESHOLD ((int)POOL_SIZE / 2)
 
-#define Get_pool_header(s)                                \
-  ((void *)((uintptr_t)s & ~((uintptr_t)POOL_SIZE - 1)))
-
-#if OCAML_MULTICORE && BOXROOT_MULTITHREAD
-#define dom_id_of_fl(fl) \
-  atomic_load_explicit(&(fl)->domain_id, memory_order_relaxed);
-#else
-#define dom_id_of_fl(fl) ((void)(fl),0)
-#endif
+#define Get_pool_header(s)                                  \
+  ((void *)((uintptr_t)(s) & ~((uintptr_t)POOL_SIZE - 1)))
 
 inline int boxroot_free_slot(boxroot_fl *fl, boxroot root)
 {
+  /* We have the lock of the domain that owns the pool. */
   void **s = (void **)root;
   void *n = (void *)fl->next;
   *s = n;
@@ -142,7 +142,7 @@ inline int boxroot_free_slot(boxroot_fl *fl, boxroot root)
 }
 
 void boxroot_delete_debug(boxroot root);
-void boxroot_delete_slow(boxroot root);
+void boxroot_delete_slow(boxroot_fl *fl, boxroot root, int remote);
 
 inline void boxroot_delete(boxroot root)
 {
@@ -150,12 +150,33 @@ inline void boxroot_delete(boxroot root)
   boxroot_delete_debug(root);
 #endif
   boxroot_fl *fl = Get_pool_header(root);
-  int dom_id = dom_id_of_fl(fl);
   int remote =
     BOXROOT_FORCE_REMOTE
-    || (BOXROOT_MULTITHREAD && !boxroot_domain_lock_held(dom_id));
+    || (BOXROOT_MULTITHREAD && !boxroot_domain_lock_held(fl->domain_id));
   if (remote || BOXROOT_UNLIKELY(boxroot_free_slot(fl, root)))
-    boxroot_delete_slow(root);
+    /* remote deallocation or deallocation threshold */
+    boxroot_delete_slow(fl, root, remote);
+}
+
+void boxroot_modify_debug(boxroot *root);
+void boxroot_modify_slow(boxroot *root, value new_value);
+
+inline void boxroot_modify(boxroot *root, value new_value)
+{
+#if defined(BOXROOT_DEBUG) && (BOXROOT_DEBUG == 1)
+  boxroot_modify_debug(root);
+#endif
+  value *s = (value *)*root;
+  boxroot_fl *fl = Get_pool_header(s);
+  if (BOXROOT_LIKELY(fl->class == CLASS_YOUNG
+                     || !Is_block(new_value)
+                     || !Is_young(new_value))) {
+    *(value *)s = new_value;
+  } else {
+    /* We need to reallocate, but this reallocation happens at most
+       once between two minor collections. */
+    boxroot_modify_slow(root, new_value);
+  }
 }
 
 #endif // BOXROOT_H

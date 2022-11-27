@@ -14,12 +14,8 @@
 #include <caml/domain.h>
 #endif
 
-#if OCAML_MULTICORE
-static_assert(Num_domains < INT_MAX);
+static_assert(Num_domains <= INT_MAX);
 static atomic_int in_minor_collection = 0;
-#else
-static int in_minor_collection = 0;
-#endif
 
 static caml_timing_hook prev_minor_begin_hook = NULL;
 static caml_timing_hook prev_minor_end_hook = NULL;
@@ -39,19 +35,19 @@ static caml_timing_hook prev_minor_end_hook = NULL;
 
 static void record_minor_begin()
 {
-  in_minor_collection++;
+  incr(&in_minor_collection);
   if (prev_minor_begin_hook != NULL) prev_minor_begin_hook();
 }
 
 static void record_minor_end()
 {
-  in_minor_collection--;
+  decr(&in_minor_collection);
   if (prev_minor_end_hook != NULL) prev_minor_end_hook();
 }
 
 int boxroot_in_minor_collection()
 {
-  return in_minor_collection != 0;
+  return load_relaxed(&in_minor_collection) != 0;
 }
 
 static boxroot_scanning_callback scanning_callback = NULL;
@@ -161,3 +157,4 @@ void boxroot_setup_hooks(boxroot_scanning_callback scanning,
 
 /* Needed to avoid linking error with Rust */
 extern inline int boxroot_domain_lock_held(int dom_id);
+extern inline int boxroot_domain_lock_held_any();
