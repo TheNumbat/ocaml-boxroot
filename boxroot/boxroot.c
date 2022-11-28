@@ -314,10 +314,14 @@ static int anticipated_alloc_count(pool *p)
 }
 
 /* ownership required: STW (or the current domain lock + knowledge
-   that no other thread owns slots) */
-static void gc_pool(pool *p)
+   that no other thread owns slots)
+
+   Returns 0 iff no element has been appended to the freelist.
+*/
+static int gc_pool(pool *p)
 {
-  if (0 == load_relaxed(&p->delayed_fl.a_alloc_count)) return;
+  int old_alloc_count = load_relaxed(&p->delayed_fl.a_alloc_count);
+  if (0 == old_alloc_count) return 0;
   boxroot_mutex_lock(&p->mutex);
   if (is_full_pool(p)) p->free_list.end = p->delayed_fl.end;
   p->free_list.alloc_count = anticipated_alloc_count(p);
@@ -327,6 +331,7 @@ static void gc_pool(pool *p)
   store_relaxed(&p->delayed_fl.a_next, p);
   *((slot *)p->delayed_fl.end) = list;
   boxroot_mutex_unlock(&p->mutex);
+  return old_alloc_count;
 }
 
 /* ownership required: ring */
@@ -720,15 +725,16 @@ static void adopt_orphaned_pools(int dom_id)
   boxroot_mutex_unlock(&orphan_mutex);
 }
 
-/* ownership required: ring, domain */
-static void gc_and_reclassify_pool(pool **source, int dom_id)
+/* ownership required: like gc_pool + ring */
+static void try_gc_and_reclassify_pool(pool **source, int dom_id)
 {
   pool *p = *source;
-  gc_pool(p);
-  if (p->free_list.alloc_count == 0)
-    reclassify_pool(source, dom_id, UNTRACKED);
-  else if (is_not_too_full(p))
-    reclassify_pool(source, dom_id, p->free_list.class);
+  if (gc_pool(p) != 0) {
+    if (p->free_list.alloc_count == 0)
+      reclassify_pool(source, dom_id, UNTRACKED);
+    else if (is_not_too_full(p))
+      reclassify_pool(source, dom_id, p->free_list.class);
+  }
 }
 
 /* ownership required: ring, domain */
@@ -738,15 +744,15 @@ static void try_gc_and_reclassify_one_pool_no_stw(pool **source, int dom_id)
   pool *p = start;
   do {
     if (anticipated_alloc_count(p) == 0) {
-      /* If the true alloc count is 0, then we own all the slots:
-         nobody will mutate the delayed_fl in parallel. Subsequently,
-         we have found a pool to GC (if delayed_alloc_count is 0 then
-         so is alloc_count, and the pool has already been
-         reclassified). */
+      /* If the true alloc count is 0, then `delayed_alloc_count` is
+         non-zero (otherwise the pool has already been reclassified
+         into an untracked pool), and moreover we own all the slots
+         (nobody can mutate the delayed_fl in parallel). Hence we have
+         found a pool that we can usefully GC. */
       /* Synchronize with free_slot_atomic */
       atomic_thread_fence(memory_order_acquire);
       pool **new_source = (p == start) ? source : &p;
-      gc_and_reclassify_pool(new_source, dom_id);
+      try_gc_and_reclassify_pool(new_source, dom_id);
       return;
     }
     p = p->next;
@@ -768,8 +774,7 @@ static void gc_ring(pool **ring, int dom_id)
   /* GC the head of the ring while we are still at the head. */
   while (p == *ring) {
     pool *next = p->next;
-    if (load_relaxed(&p->delayed_fl.a_alloc_count) != 0)
-      gc_and_reclassify_pool(ring, dom_id);
+    try_gc_and_reclassify_pool(ring, dom_id);
     if (p == next)
       /* There was only one pool left in the ring */
       return;
@@ -778,8 +783,7 @@ static void gc_ring(pool **ring, int dom_id)
   /* Now p != *ring, and things become easier */
   do {
     pool *next = p->next;
-    if (load_relaxed(&p->delayed_fl.a_alloc_count) != 0)
-      gc_and_reclassify_pool(&p, dom_id);
+    try_gc_and_reclassify_pool(&p, dom_id);
     p = next;
   } while (p != *ring);
 }
