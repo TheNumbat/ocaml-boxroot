@@ -108,33 +108,42 @@ static void boxroot_scan_hook(scanning_action action)
 
 _Thread_local int boxroot_thread_has_lock = 0;
 
-void (*prev_enter_blocking)(void);
-void (*prev_leave_blocking)(void);
+static void (*prev_enter_blocking)(void);
+static void (*prev_leave_blocking)(void);
 
-void boxroot_enter_blocking_section(void)
+static void boxroot_enter_blocking_section(void)
 {
   boxroot_thread_has_lock = 0;
   prev_enter_blocking();
 }
 
-void boxroot_leave_blocking_section(void)
+static void boxroot_leave_blocking_section(void)
 {
   prev_leave_blocking();
   boxroot_thread_has_lock = 1;
 }
 
-/* Only called while holding the master lock for real */
-void boxroot_check_thread_hooks()
+/* from <caml/signals.h> */
+CAMLextern void (*caml_leave_blocking_section_hook)(void);
+CAMLextern void (*caml_enter_blocking_section_hook)(void);
+
+static void boxroot_setup_thread_hooks()
 {
-  if (caml_leave_blocking_section_hook != boxroot_leave_blocking_section) {
-    prev_leave_blocking = caml_leave_blocking_section_hook;
-    caml_leave_blocking_section_hook = boxroot_leave_blocking_section;
-  }
-  if (caml_enter_blocking_section_hook != boxroot_enter_blocking_section) {
-    prev_enter_blocking = caml_enter_blocking_section_hook;
-    caml_enter_blocking_section_hook = boxroot_enter_blocking_section;
-  }
+  prev_leave_blocking = caml_leave_blocking_section_hook;
+  prev_enter_blocking = caml_enter_blocking_section_hook;
+  caml_leave_blocking_section_hook = boxroot_leave_blocking_section;
+  caml_enter_blocking_section_hook = boxroot_enter_blocking_section;
   boxroot_thread_has_lock = 1;
+}
+
+int boxroot_check_thread_hooks()
+{
+  if (caml_leave_blocking_section_hook != boxroot_leave_blocking_section
+      || caml_enter_blocking_section_hook != boxroot_enter_blocking_section) {
+    return 0;
+    boxroot_setup_thread_hooks();
+  }
+  return 1;
 }
 
 void boxroot_setup_hooks(boxroot_scanning_callback scanning,
@@ -149,12 +158,9 @@ void boxroot_setup_hooks(boxroot_scanning_callback scanning,
   caml_scan_roots_hook = boxroot_scan_hook;
   caml_minor_gc_begin_hook = record_minor_begin;
   caml_minor_gc_end_hook = record_minor_end;
-  boxroot_check_thread_hooks();
+  boxroot_setup_thread_hooks();
   (void)domain_termination;
 }
 
 #endif // OCAML_MULTICORE
 
-/* Needed to avoid linking error with Rust */
-extern inline int boxroot_domain_lock_held(int dom_id);
-extern inline int boxroot_domain_lock_held_any();

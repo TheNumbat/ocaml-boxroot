@@ -62,6 +62,35 @@ inline void boxroot_modify(boxroot *, value);
    can only be called after OCaml shuts down. */
 void boxroot_teardown();
 
+
+enum {
+  BOXROOT_NOT_SETUP,
+  BOXROOT_RUNNING,
+  BOXROOT_TORE_DOWN,
+  BOXROOT_INVALID
+};
+
+/* For API authors, `boxroot_status()` shows the cause of an
+   allocation failure:
+
+   - Permanent failures:
+       - `BOXROOT_TORE_DOWN`: `boxroot_teardown` has been called.
+       - `BOXROOT_INVALID`: in OCaml 4, initializing the thread
+         machinery after Boxroot has been intialized overwrites the
+         hooks we use. Threads should be initialized before Boxroot.
+         Either:
+           - From OCaml, make sure the `Thread` module is already
+             initialized when allocating the first boxroot.
+           - From C, if calling `caml_startup` by hand, then you can
+             call `caml_thread_initialize` immediately afterwards (but
+             only with OCaml 4). With OCaml 5 there is nothing to do.
+
+   - Transient failures (`BOXROOT_RUNNING`), check `errno`:
+       - `errno == EPERM`: you tried calling boxroot_create without
+         holding the domain lock.
+       - `errno == ENOMEM`: allocation failure of the backing store. */
+int boxroot_status();
+
 /* Show some statistics on the standard output. */
 void boxroot_print_stats();
 
@@ -86,7 +115,8 @@ typedef struct {
 
 #define CLASS_YOUNG 0
 
-extern boxroot_fl *boxroot_current_fl[Num_domains];
+extern _Thread_local ptrdiff_t cached_domain_id;
+extern boxroot_fl *boxroot_current_fl[Num_domains + 1];
 
 void boxroot_create_debug(value v);
 boxroot boxroot_create_slow(value v);
@@ -104,16 +134,15 @@ inline boxroot boxroot_create(value init)
   boxroot_create_debug(init);
 #endif
   /* Find current freelist. Synchronized by domain lock. */
-  boxroot_fl *fl = boxroot_current_fl[BOXROOT_MULTITHREAD ? Domain_id : 0];
-  if (BOXROOT_UNLIKELY(fl == NULL)) goto slow;
+  ptrdiff_t dom_id =
+    (OCAML_MULTICORE && BOXROOT_MULTITHREAD) ? cached_domain_id : 0;
+  boxroot_fl *fl = boxroot_current_fl[dom_id + 1];
   void *new_root = fl->next;
-  if (BOXROOT_UNLIKELY(new_root == fl)) goto slow;
+  if (BOXROOT_UNLIKELY(new_root == fl)) return boxroot_create_slow(init);
   fl->next = *((void **)new_root);
   fl->alloc_count++;
   *((value *)new_root) = init;
   return (boxroot)new_root;
-slow:
-  return boxroot_create_slow(init);
 }
 
 /* Log of the size of the pools (12 = 4KB, an OS page).
@@ -150,9 +179,11 @@ inline void boxroot_delete(boxroot root)
   boxroot_delete_debug(root);
 #endif
   boxroot_fl *fl = Get_pool_header(root);
+  int remote_dom_id = OCAML_MULTICORE ? fl->domain_id != cached_domain_id : 0;
   int remote =
     BOXROOT_FORCE_REMOTE
-    || (BOXROOT_MULTITHREAD && !boxroot_domain_lock_held(fl->domain_id));
+    || (BOXROOT_MULTITHREAD
+        && (BOXROOT_UNLIKELY(remote_dom_id) || !boxroot_domain_lock_held()));
   if (remote || BOXROOT_UNLIKELY(boxroot_free_slot(fl, root)))
     /* remote deallocation or deallocation threshold */
     boxroot_delete_slow(fl, root, remote);

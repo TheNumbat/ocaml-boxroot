@@ -66,6 +66,9 @@ single value with the same interface as boxroot (`create`, `get`,
   immediate) containing a global root, and
 - `generational`: idem, but using a generational
   global root.
+
+Older experiments are not thread-safe (at least not efficiently so):
+
 - `dll_boxroot`: a variant of `boxroot`, but using a simpler
   implementation with doubly-linked lists,
 - `rem_boxroot`: a variant of `boxroot`, but using a different
@@ -107,35 +110,54 @@ value is registered as a GC root.
 This benchmark creates a lot of roots alive at the same time.
 
 ```
-$ make run-perm_count TEST_MORE=2
+$ echo OCaml `ocamlc --version` && make run-perm_count TEST_MORE=2
+OCaml 4.14.0
 Benchmark: perm_count
 ---
-boxroot: 1.88s
-gc: 2.17s
-ocaml: 1.79s
-generational: 5.72s
-ocaml_ref: 2.16s
-dll_boxroot: 2.15s
-rem_boxroot: 2.06s
-global: 47.29s
+boxroot: 1.71s
+gc: 1.49s
+ocaml: 1.20s
+generational: 5.90s
+ocaml_ref: 1.47s
+dll_boxroot: 2.13s
+rem_boxroot: 1.97s
+global: 48.19s
 ```
 
 This benchmark allocates 1860 boxroot pools, and performs 1077 minor
-and 18 major collections. Roughly 20M boxroots are allocated.
+and 18 major collections. Roughly 22M boxroots are allocated.
 
 We see that global roots add a large overhead, which is reduced by
 using generational global roots. Boxroots outperform generational
-global roots, and are competitive with the reference implementations
-that do not use roots (ocaml and gc).
+global roots, and give slightly slower time than equivalent pure-GC
+implementations (`ocaml_ref` and `gc`).
 
-It is not expected that `boxroot` outperforms `gc` and `ocaml_ref`.
-Two hypotheses can explain this speedup.
-- `boxroot` might puts less pressure on the GC. It indeed performs 14%
+```
+$ echo OCaml `ocamlc --version` && make run-perm_count TEST_MORE=2
+OCaml 5.0.0+dev6-2022-07-21
+Benchmark: perm_count
+---
+boxroot: 1.42s
+gc: 1.62s
+ocaml: 1.25s
+generational: 5.43s
+ocaml_ref: 1.69s
+dll_boxroot: 1.69s
+rem_boxroot: 1.55s
+global: 49.74s
+```
+
+The OCaml 5.0 performance gives us a hint of considerations entering
+into boxroot's performance. Here `boxroot` unexpectedly outperforms
+`gc` and `ocaml_ref`. Two hypotheses can explain this speedup:
+- `boxroot` puts less pressure on the GC. It indeed performs 14%
   fewer minor collections than `gc`.
-- `boxroot` might improve cache locality during root scanning. The
-  sensitivity to this effect is confirmed by running the benchmark
-  with OCaml 4.14.0, which features data prefetching during major
-  collection (`gc`:1.45s vs. `boxroot`:1.82s).
+- `boxroot` has good cache locality during root scanning. Indeed one
+  major difference with OCaml 4.14 is the absence of prefetching
+  during the major GC. The sensitivity to this effect is confirmed by
+  running the benchmark with OCaml 4.12.0, which also lacks
+  prefetching and shows `boxroot` also outperforming its pure-GC
+  counterparts.
 
 ### Synthetic benchmark
 
@@ -161,28 +183,50 @@ are short-lived. Roots that survive are few, but they are very
 long-lived.
 
 ```
-$ make run-synthetic TEST_MORE=2
+$ echo OCaml `ocamlc --version` && make run-synthetic TEST_MORE=2
+OCaml 4.14.0
 Benchmark: synthetic
 ---
-boxroot: 5.89s
-gc: 6.61s
-ocaml: 5.97s
-generational: 10.44s
-ocaml_ref: 6.74s
-dll_boxroot: 6.42s
-rem_boxroot: 6.01s
-global: 15.20s
+boxroot: 6.19s
+gc: 7.15s
+ocaml: 6.21s
+generational: 10.83s
+ocaml_ref: 7.03s
+dll_boxroot: 6.68s
+rem_boxroot: 6.41s
+global: 15.89s
 ```
 
-This benchmark allocates 761 boxroot pools, and performs 2,634 minor
-and 128 major collections. Roughly 16M roots are allocated.
+This benchmark allocates 772 boxroot pools, and performs 2,619 minor
+and 141 major collections. Roughly 16M roots are allocated.
 
 `boxroot` again performs better than other root implementations, but
 it is unexpected again that it outperforms `ocaml`, `ocaml_ref` and
 `gc`. This is not well-understood.
-- `gc` actually does fewer minor and major collection.
-- Running with a prefetching GC (OCaml 4.14) still shows comparable
+- `gc` does actually fewer minor and major collection.
+- Running with or without a prefetching GC shows comparable
   performance between `boxroot` and `ocaml`.
+
+```
+$ echo OCaml `ocamlc --version` && make run-synthetic TEST_MORE=2
+OCaml 5.0.0+dev6-2022-07-21
+Benchmark: synthetic
+---
+boxroot: 2.86s
+gc: 2.98s
+ocaml: 2.82s
+generational: 4.80s
+ocaml_ref: 2.99s
+dll_boxroot: 3.04s
+rem_boxroot: 3.01s
+global: 6.08s
+```
+
+In multicore, this benchmark allocates 408 boxroot pools, and performs
+2,615 minor and 55 major collections. 8.7M roots are allocated.
+Therefore absolute values are not comparable between major OCaml
+versions. The relative results are similar between OCaml 4.14 and
+OCaml 5.0.
 
 ### Globroot benchmark
 
@@ -198,17 +242,17 @@ work). So the cost of root handling is magnified, it would normally be
 amortized by OCaml computations.
 
 ```
-$ make run-globroots TEST_MORE=2
-Benchmark: globroots
+$ echo OCaml `ocamlc --version` && make run-globroots TEST_MORE=2
+OCaml 4.14.0
 ---
-boxroot: 1.08s
-gc: 1.40s
-ocaml: 0.93s
+boxroot: 1.03s
+gc: 1.35s
+ocaml: 0.89s
 generational: 1.14s
-ocaml_ref: 1.31s
-dll_boxroot: 1.06s
-rem_boxroot: 1.00s
-global: 1.30s
+ocaml_ref: 1.27s
+dll_boxroot: 0.99s
+rem_boxroot: 0.95s
+global: 1.24s
 ```
 
 In this benchmark, there are about 67000 minor collections and 40000
@@ -223,7 +267,25 @@ There used to be a noticeable overhead in this benchmark, but it has
 been reduced with optimizations brought to scanning during minor
 collection.
 
-![Global roots benchmarks](global.svg)
+```
+$ echo OCaml `ocamlc --version` && make run-globroots TEST_MORE=2
+OCaml 5.0.0+dev6-2022-07-21
+Benchmark: globroots
+---
+boxroot: 0.82s
+gc: 1.01s
+ocaml: 0.72s
+generational: 0.92s
+ocaml_ref: 1.02s
+dll_boxroot: 0.84s
+rem_boxroot: 0.78s
+global: 1.34s
+```
+
+
+![Global roots benchmarks (OCaml 4.14)](global.svg)
+
+![Global roots benchmarks (OCaml 5.0)](global5.svg)
 
 ### Local roots benchmark
 
@@ -309,11 +371,13 @@ expected by OCaml `external` declarations to a caller-root convention.
 
 The `naive` test uses boxroots in a callee-roots discipline.
 
+
 ```
-$ make run-local_roots TEST_MORE=2
+$ echo OCaml `ocamlc --version` && make run-local_roots TEST_MORE=2
+OCaml 4.14.0
 ```
 
-![Local roots benchmarks](local.svg)
+![Local roots benchmarks (OCaml 4.14)](local.svg)
 
 We see that, in this test, despite the up-front cost of wrapping the
 function, `boxroot`s are equivalent to or outperform OCaml's local
@@ -343,6 +407,45 @@ Furthermore, we envision that with support from the OCaml compiler for
 the caller-roots discipline, the wrapping responsible for initial
 overhead could be made unnecessary.
 
+```
+$ echo OCaml `ocamlc --version` && make run-local_roots TEST_MORE=2
+OCaml 5.0.0+dev6-2022-07-21
+```
+
+![Local roots benchmarks (OCaml 5.0)](local5.svg)
+
+In multicore, we observe similar results. However, the overhead of C
+calls appears to be higher, and (generational) global roots are much
+more expensive since they are protected by a mutex.
+
+We have measured the performance of two alternative implementations:
+- _thread-unsafe_: assume that there is only one thread that never
+  releases the domain lock, and thus avoid related checks in
+  `boxroot_create` and `boxroot_delete`.
+- _force remote_: the opposite, perform all deallocations as if they
+  were done on a different domain, using the lock-free atomic
+  deallocation path.
+
+![Local roots benchmarks (impact of multicore support)](local5-2.svg)
+
+Our thread-safe implementation of Boxroot for OCaml multicore is
+slightly slower than a version that does not perform checks necessary
+for thread-safety. The difference is likely lesser in other kinds of
+situations where more time is spent in cache misses.
+
+The implementation where all deallocations are done remotely is only
+slightly slower than Boxroot (although with a much higher pool count
+currently, due to the fact that remote deallocations are delayed until
+the next garbage collection). However this single-threaded benchmark
+does not let us see the costs of cache effects in realistic
+multithreaded scenarios (cache misses and contention).
+
+Our conclusions:
+- The overhead of multithreading support is low enough to propose
+  Boxroot as an all-purpose rooting machanism.
+- The performance of cross-thread deallocation is likely very good,
+  but we need better benchmarks to measure this.
+
 ## Implementation
 
 We implemented a custom allocator that manages fairly standard
@@ -368,15 +471,25 @@ optimisation when all roots have been found ensures that programs that
 use few roots throughout the life of the program only pay for what
 they use.
 
+### Generational optimisation
+
 The memory pools are managed in several rings, according to their
 *class*. The class distinguishes pools according to OCaml generations,
 as well as pools that are free (which need not be scanned). A pool is
 *young* if it is allowed to contain pointers to the minor heap. During
 minor collection, we only need to scan young pools. At the end of the
 minor collection, the young pools, now guaranteed to no longer point
-to any young value, are promoted into *old* pools. We unconditionally
-allocate roots in young pools, to avoids testing at allocation-time
-whether their initial value is young or old.
+to any young value, are promoted into *old* pools.
+
+We unconditionally allocate roots in young pools, to avoid testing at
+allocation-time whether their initial value is young or old. This test
+is better amortized if done from the collector for two reasons: in
+some situations there may be many more roots allocated than living
+through collections, and there is a way to make this test very
+efficient when done in a tight loop. In addition, we want to inline
+the fast paths of `boxroot_create` and `boxroot_delete`, so we gain in
+reducing code size and avoiding branches that are not statically
+predictible.
 
 The rings are managed in such a manner that pools that are less than
 half-full are rotated to the start of the ring. This ensures that it
@@ -389,15 +502,47 @@ Otherwise we prefer to allocate a new pool.
 Care is taken so that programs that do not allocate any root do not
 pay any of the cost.
 
+### Multicore implementation
+
+In OCaml multicore, each domain has its own set of pool rings. Each
+allocation is performed in the domain-local pools. As for
+deallocations, each one is classified into: _local_, _remote domain_,
+_purely remote_. (Improvements have been upstreamed for the release of
+OCaml 5.0 to let us perform this classification efficiently.)
+
+- Local deallocations are done on the same domain and while holding
+  the domain lock. They are performed immediately without any
+  synchronisation necessary.
+- Remote domain deallocations are done from a different domain than
+  the one that has allocated the boxroot. The typical use-case is
+  sending OCaml values between threads, or foreign data structures
+  containing such values. It is done while holding some domain lock,
+  and thus we know that no interference with scanning is possible. It
+  is pushed on an remote free list using an atomic exchange and an
+  atomic increment. The remote free list is pushed back on top of the
+  main free list at the start of scanning, which takes place during a
+  stop-the-world section, when no other remote deallocation can take
+  place.
+- Purely remote deallocations are done without holding the domain
+  lock. The typical use-case is the clean-up of foreign data
+  structures that would store OCaml values while releasing the domain
+  lock, which is rarer, so its performance is secondary. To avoid
+  interference with scanning without making the latter very slow, each
+  pool has a mutex that needs to be locked during purely remote
+  deallocation. This mutex is also locked before scanning the pool. In
+  all other aspects the purely remote deallocation is treated like a
+  remote domain deallocation.
+
 ## Limitations
 
-* Our prototype library uses `posix_memalign`, which currently limits
-  its portability on some systems.
+* This library has only been tested on Linux 64-bit, though it would
+  be easy to port it to other platforms if it does not work right
+  away. Please get in touch for any portability requirement.
 
-* No synchronisation is performed yet in the above benchmarks. In the
-  released version, synchronisation is currently implemented with a
-  global lock not representative of expected performance. We intend to
-  lift this limitation in the future.
+* We have not yet written tests and benchmarks that exercise the
+  multi-threading capability of Boxroot. All our benchmarks were
+  single-threaded, although measuring an implementation which is
+  thread-safe.
 
 * Due to limitations of the GC hook interface, no work has been done
   to scan roots incrementally. Holding a (very!) large number of roots
