@@ -17,13 +17,28 @@ Working version
 - Clarify license (MIT license).
   (Guillaume Munch-Maccagnoni, review by Gabriel Scherer)
 
+- Better error reporting and analysis for API authors
+  (`boxroot_status`). `boxroot_create` and `boxroot_modify` now detect
+  and safely fail when called without holding the domain lock
+  (signature change for `boxroot_modify`).
+  (Guillaume Munch-Maccagnoni)
+
 ### Internal changes
+
+- Detection of master lock for OCaml 4. Note usage constraints with
+  systhreads for OCaml 4 (see documentation of `boxroot_status` in
+  `boxroot.h`).
+  (Guillaume Munch-Maccagnoni, review by Gabriel Scherer)
 
 - Benchmark improvements.
   (Gabriel Scherer and Guillaume Munch-Maccagnoni)
 
 - Per-domain caching for OCaml multicore. There is no longer a global
   lock for multicore.
+  (Guillaume Munch-Maccagnoni)
+
+- Various performance improvements under OCaml 4 and OCaml 5.
+  Deallocation is almost-always lock-free.
   (Guillaume Munch-Maccagnoni)
 
 ### Experiments
@@ -42,6 +57,9 @@ Working version
 
 ### Packaging
 
+- API update for ocaml-boxroot-sys (breaking change).
+  (Guillaume Munch-Maccagnoni)
+
 - Minor improvements.
   (Guillaume Munch-Maccagnoni)
 
@@ -51,6 +69,11 @@ Working version
 
 - Declare `package.links` value in Rust crate.
   (Bruno Deferrari, review by Guillaume Munch-Maccagnoni)
+
+- ocaml-boxroot-sys no longer links to the std library (`[no_std]`).
+  Note though that ocaml-boxroot still relies on a system allocator
+  (`posix_memalign`).
+  (Guillaume Munch-Maccagnoni)
 
 
 ocaml-boxroot 0.2

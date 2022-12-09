@@ -2,10 +2,7 @@
 
 #[cfg(feature = "bundle-boxroot")]
 fn build_boxroot() {
-    println!("cargo:rerun-if-changed=vendor/boxroot/boxroot.c");
-    println!("cargo:rerun-if-changed=vendor/boxroot/boxroot.h");
-    println!("cargo:rerun-if-changed=vendor/boxroot/ocaml_hook.c");
-    println!("cargo:rerun-if-changed=vendor/boxroot/ocaml_hook.h");
+    println!("cargo:rerun-if-changed=vendor/boxroot/");
     println!("cargo:rerun-if-env-changed=OCAMLOPT");
     println!("cargo:rerun-if-env-changed=OCAML_WHERE_PATH");
 
@@ -15,17 +12,20 @@ fn build_boxroot() {
 
     let ocaml_path = match ocaml_where_path {
         Ok(path) => path,
-        _ => std::str::from_utf8(
-            std::process::Command::new(&ocamlopt)
-                .arg("-where")
-                .output()
-                .unwrap()
-                .stdout
-                .as_ref(),
-        )
-        .unwrap()
-        .trim()
-        .to_owned(),
+        _ => {
+          println!("cargo:rerun-if-env-changed=OPAM_SWITCH_PREFIX"); // for opam users
+          std::str::from_utf8(
+              std::process::Command::new(&ocamlopt)
+                  .arg("-where")
+                  .output()
+                  .unwrap()
+                  .stdout
+                  .as_ref(),
+          )
+          .unwrap()
+          .trim()
+          .to_owned()
+        },
     };
 
     let mut config = cc::Build::new();

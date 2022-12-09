@@ -6,7 +6,7 @@ authors = ["Guillaume Munch-Maccagnoni <Guillaume.Munch-Maccagnoni@inria.fr>",
            "Bruno Deferrari <utizoc@gmail.com>"]
 edition = "2018"
 license = "MIT"
-description = "Boxroot for OCaml: fast movable GC roots (Rust packaging)"
+description = "Boxroot for OCaml: fast movable GC roots (C API)"
 homepage = "https://gitlab.com/ocaml-rust/ocaml-boxroot"
 repository = "https://gitlab.com/ocaml-rust/ocaml-boxroot"
 keywords = ["ocaml", "rust", "ffi"]

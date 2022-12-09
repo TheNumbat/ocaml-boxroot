@@ -2,7 +2,7 @@
 #ifndef OCAML_HOOKS_H
 #define OCAML_HOOKS_H
 
-#include <caml/mlvalues.h>
+#include <stdbool.h>
 #include "platform.h"
 
 #if OCAML_MULTICORE
@@ -11,8 +11,8 @@
 
 #else
 
-/* 0 when the master lock is held, 1 otherwise */
-extern _Thread_local int boxroot_thread_has_lock;
+/* true when the master lock is held, false otherwise */
+extern _Thread_local bool boxroot_thread_has_lock;
 
 /* We need a way to detect concurrent mutations of
    [caml_enter/leave_blocking_section_hook]. They are only overwritten
@@ -23,7 +23,10 @@ extern _Thread_local int boxroot_thread_has_lock;
 
 #endif
 
+
 #ifdef CAML_INTERNALS
+
+#include <caml/mlvalues.h>
 #include <caml/roots.h>
 #include <caml/signals.h>
 #include <caml/version.h>
@@ -50,13 +53,13 @@ typedef void (*boxroot_scanning_callback) (scanning_action action,
 void boxroot_setup_hooks(boxroot_scanning_callback scanning,
                          caml_timing_hook domain_termination);
 
-int boxroot_in_minor_collection();
+bool boxroot_in_minor_collection();
 
 #if !OCAML_MULTICORE
 
 /* Used to regularly check that the hooks have not been overwritten.
    If they have, we place boxroot in safety mode. */
-int boxroot_check_thread_hooks();
+bool boxroot_check_thread_hooks();
 
 #endif // !OCAML_MULTICORE
 
