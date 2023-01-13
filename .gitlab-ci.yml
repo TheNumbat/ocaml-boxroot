@@ -1,36 +1,34 @@
-image: ocaml/opam:alpine-3.15-ocaml-4.14
-# default opam switch name: 4.14
+image: ocaml/opam:alpine-3.15-ocaml-5.0
 
 stages:
   - .pre
   - build
 
-setup-5.0:
+setup:
   stage: .pre
-  # The OCaml 5 installation is updated when clearing runner caches 
+  # The OCaml 4.14 installation is updated when clearing runner caches 
   cache:
-    key: ocaml-5.0.0+trunk
+    key: ocaml-4.14.0
     paths:
       - _opam
   script:
     - export OPAMCLI=2.0
     - if [ -d _opam ]; then { echo "_opam already exists, caching successful"; exit 0; } fi
-    - opam repository add beta git+https://github.com/ocaml/ocaml-beta-repository.git
-    - opam switch create . --packages=ocaml-variants.5.0.0+trunk,dune --repos beta,default --yes
+    - opam switch create . --packages=ocaml.4.14.0,dune --yes
     - opam clean --switch=.
 
 .opam-switch-to-5: &opam-switch-to-5
   - echo "Testing with OCaml 5.0"
-    # check we have OCaml 5.0.0+trunk
-  - opam env --switch=.
-    # switch to OCaml 5.0.0+trunk
-  - eval $(opam env --switch=. --set-switch)
+    # check we have OCaml 5.0.0
+  - opam env --switch=5.0
+    # switch to OCaml 5.0.0
+  - eval $(opam env --switch=5.0 --set-switch)
   - ocamlc --version
 
 build:
   stage: build
   cache:
-    key: ocaml-5.0.0+trunk
+    key: ocaml-4.14.0
     paths:
       - _opam
     policy: pull
@@ -40,9 +38,10 @@ build:
       - bench-log-5.0.txt
   before_script:
     - export OPAMCLI=2.0
-    - opam install --switch=4.14 --yes dune
+    - opam install --switch=5.0 dune
   script:
     - echo "Testing Boxroot with OCaml 4.14"
+    - eval $(opam env --switch=. --set-switch)
     - ocamlc --version
     - make all
     - make run | tee bench-log-4.14.txt
@@ -54,7 +53,7 @@ build:
 build-crate:
   stage: build
   cache:
-    key: ocaml-5.0.0+trunk
+    key: ocaml-4.14.0
     paths:
       - _opam
     policy: pull
@@ -63,6 +62,7 @@ build-crate:
     - sudo apk add --no-cache rust cargo ca-certificates
   script:
     - echo "Testing Rust crate with OCaml 4.14"
+    - eval $(opam env --switch=. --set-switch)
     - ocamlc --version
     - make test-rs
     - make clean-rs
