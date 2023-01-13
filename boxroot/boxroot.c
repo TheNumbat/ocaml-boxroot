@@ -103,6 +103,7 @@ typedef struct pool {
 
 static_assert(POOL_SIZE / sizeof(slot) <= INT_MAX, "pool size too large");
 static_assert(POOL_CAPACITY >= 1, "pool size too small");
+static_assert(offsetof(pool, free_list) == 0, "incorrect free_list offset");
 
 /* }}} */
 
