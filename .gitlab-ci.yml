@@ -1,4 +1,4 @@
-image: ocaml/opam:alpine-3.15-ocaml-5.0
+image: ocaml/opam:alpine-3.17-ocaml-5.0
 
 stages:
   - .pre
