@@ -28,7 +28,8 @@
 #include "ocaml_hooks.h"
 #include "platform.h"
 
-static_assert(!BOXROOT_FORCE_REMOTE || BOXROOT_MULTITHREAD);
+static_assert(!BOXROOT_FORCE_REMOTE || BOXROOT_MULTITHREAD,
+              "valid configuration");
 
 /* }}} */
 
@@ -102,8 +103,7 @@ typedef struct pool {
 
 static_assert(POOL_SIZE / sizeof(slot) <= INT_MAX, "pool size too large");
 static_assert(POOL_CAPACITY >= 1, "pool size too small");
-static_assert(&((pool *)NULL)->free_list == Get_pool_header(NULL),
-              "incorrect free_list offset");
+static_assert(offsetof(pool, free_list) == 0, "incorrect free_list offset");
 
 /* }}} */
 
