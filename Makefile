@@ -112,8 +112,8 @@ test-boxroot: all
 .PHONY: test-rs
 test-rs:
 	cd rust/ocaml-boxroot-sys && \
-	cargo build --features "link-ocaml-runtime-and-dummy-program" --verbose && \
-	cargo test --features "link-ocaml-runtime-and-dummy-program" --verbose
+	RUSTFLAGS="-D warnings" cargo build --features "link-ocaml-runtime-and-dummy-program" --verbose && \
+	RUSTFLAGS="-D warnings" cargo test --features "link-ocaml-runtime-and-dummy-program" --verbose
 
 .PHONY: clean-rs
 clean-rs:

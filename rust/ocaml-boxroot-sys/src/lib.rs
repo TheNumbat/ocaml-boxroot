@@ -6,20 +6,28 @@
     no_std)]
 
 pub type Value = isize;
-pub type BoxRoot = core::ptr::NonNull<core::cell::UnsafeCell<Value>>;
+pub type ValueCell = core::cell::UnsafeCell<Value>;
+
+#[repr(transparent)]
+#[derive(Copy, Clone)]
+pub struct BoxRoot { contents: core::ptr::NonNull<ValueCell> }
+
+/// Documentation inside boxroot/boxroot.h (including rules for safe usage)
+
+#[inline]
+pub fn boxroot_get_ref(br: BoxRoot) -> *const ValueCell {
+    br.contents.as_ptr()
+}
+
+#[inline]
+pub unsafe fn boxroot_get(br: BoxRoot) -> Value {
+    *(core::cell::UnsafeCell::raw_get(boxroot_get_ref(br)))
+}
 
 extern "C" {
     pub fn boxroot_create(v: Value) -> Option<BoxRoot>;
-    pub fn boxroot_get(br: BoxRoot) -> Value;
-    pub fn boxroot_get_ref(br: BoxRoot) -> *const Value;
     pub fn boxroot_delete(br: BoxRoot);
     pub fn boxroot_modify(br: *mut BoxRoot, v: Value) -> bool;
-    pub fn boxroot_teardown();
-    pub fn boxroot_status() -> Status;
-    pub fn boxroot_print_stats();
-
-    /// obsolete
-    pub fn boxroot_setup();
 }
 
 #[repr(C)]
@@ -29,6 +37,15 @@ pub enum Status {
   Running,
   ToreDown,
   Invalid
+}
+
+extern "C" {
+    pub fn boxroot_teardown();
+    pub fn boxroot_status() -> Status;
+    pub fn boxroot_print_stats();
+
+    /// obsolete
+    pub fn boxroot_setup();
 }
 
 // Just a test to verify that it compiles and links right
@@ -54,7 +71,7 @@ mod tests {
             caml_startup(c_args.as_ptr());
 
             let mut br = boxroot_create(1).unwrap();
-            let v1 = *boxroot_get_ref(br);
+            let v1 = *core::cell::UnsafeCell::raw_get(boxroot_get_ref(br));
 
             boxroot_modify(&mut br, 2);
             let v2 = boxroot_get(br);
