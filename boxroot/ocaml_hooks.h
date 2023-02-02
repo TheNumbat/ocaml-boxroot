@@ -7,19 +7,19 @@
 
 #if OCAML_MULTICORE
 
-#define boxroot_domain_lock_held() (BOXROOT_LIKELY(Caml_state_opt != NULL))
+#define bxr_domain_lock_held() (BXR_LIKELY(Caml_state_opt != NULL))
 
 #else
 
 /* true when the master lock is held, false otherwise */
-extern _Thread_local bool boxroot_thread_has_lock;
+extern _Thread_local bool bxr_thread_has_lock;
 
 /* We need a way to detect concurrent mutations of
    [caml_enter/leave_blocking_section_hook]. They are only overwritten
    once at systhreads init (we assume that no piece of code in the
    OCaml ecosystem is as insane as the present one). If we see this
    happening, we place boxroot in safety mode (all allocations fail). */
-#define boxroot_domain_lock_held() (BOXROOT_LIKELY(boxroot_thread_has_lock))
+#define bxr_domain_lock_held() (BXR_LIKELY(bxr_thread_has_lock))
 
 #endif
 
@@ -47,19 +47,19 @@ extern _Thread_local bool boxroot_thread_has_lock;
 
 #endif // OCAML_MULTICORE
 
-typedef void (*boxroot_scanning_callback) (scanning_action action,
-                                           int only_young, void *data);
+typedef void (*bxr_scanning_callback) (scanning_action action,
+                                       int only_young, void *data);
 
-void boxroot_setup_hooks(boxroot_scanning_callback scanning,
-                         caml_timing_hook domain_termination);
+void bxr_setup_hooks(bxr_scanning_callback scanning,
+                     caml_timing_hook domain_termination);
 
-bool boxroot_in_minor_collection();
+bool bxr_in_minor_collection();
 
 #if !OCAML_MULTICORE
 
 /* Used to regularly check that the hooks have not been overwritten.
    If they have, we place boxroot in safety mode. */
-bool boxroot_check_thread_hooks();
+bool bxr_check_thread_hooks();
 
 #endif // !OCAML_MULTICORE
 

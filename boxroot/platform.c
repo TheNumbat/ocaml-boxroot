@@ -14,7 +14,7 @@ static_assert(Max_domains <= Num_domains,
 
 #endif
 
-pool * boxroot_alloc_uninitialised_pool(size_t size)
+pool * bxr_alloc_uninitialised_pool(size_t size)
 {
   void *p = NULL;
   // TODO: portability?
@@ -26,22 +26,22 @@ pool * boxroot_alloc_uninitialised_pool(size_t size)
   return p;
 }
 
-void boxroot_free_pool(pool *p) {
+void bxr_free_pool(pool *p) {
     // Win32: _aligned_free(p);
     free(p);
 }
 
-bool boxroot_initialize_mutex(pthread_mutex_t *mutex)
+bool bxr_initialize_mutex(pthread_mutex_t *mutex)
 {
   return 0 == pthread_mutex_init(mutex, NULL);
 }
 
-void boxroot_mutex_lock(pthread_mutex_t *mutex)
+void bxr_mutex_lock(pthread_mutex_t *mutex)
 {
   pthread_mutex_lock(mutex);
 }
 
-void boxroot_mutex_unlock(pthread_mutex_t *mutex)
+void bxr_mutex_unlock(pthread_mutex_t *mutex)
 {
   pthread_mutex_unlock(mutex);
 }

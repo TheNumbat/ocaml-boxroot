@@ -34,8 +34,8 @@
 #include "ocaml_hooks.h"
 #include "platform.h"
 
-#define LIKELY(a) BOXROOT_LIKELY(a)
-#define UNLIKELY(a) BOXROOT_UNLIKELY(a)
+#define LIKELY(a) BXR_LIKELY(a)
+#define UNLIKELY(a) BXR_UNLIKELY(a)
 
 /* }}} */
 
@@ -300,7 +300,7 @@ static pool * get_empty_pool(void)
   ++stats.live_pools;
   if (stats.live_pools > stats.peak_pools) stats.peak_pools = stats.live_pools;
 
-  pool *p = boxroot_alloc_uninitialised_pool(POOL_SIZE);
+  pool *p = bxr_alloc_uninitialised_pool(POOL_SIZE);
   if (p == NULL) return NULL;
   ++stats.total_alloced_pools;
 
@@ -354,7 +354,7 @@ static pool *pool_remove(pool *p)
 static void free_all_pools(void) {
   while (pools != NULL) {
     pool *p = ring_pop(&pools);
-    boxroot_free_pool(p);
+    bxr_free_pool(p);
     ++stats.total_freed_pools;
   }
 }
@@ -536,7 +536,7 @@ static void validate(void)
 
 static void scan_pool(scanning_action action, void *data, pool *p)
 {
-  if (boxroot_in_minor_collection()) {
+  if (bxr_in_minor_collection()) {
       /* We use the remembered set for minor boxroots,
          so no scanning is necesary on minor collections.
 
@@ -596,7 +596,7 @@ static void free_empty_pools(void) {
       if (keep_empty_pools > 0) {
         --keep_empty_pools;
       } else {
-        boxroot_free_pool(pool_remove(p));
+        bxr_free_pool(pool_remove(p));
         ++stats.total_freed_pools;
       }
     }
@@ -744,7 +744,7 @@ static void scanning_callback(scanning_action action, int only_young,
     CRITICAL_SECTION_END();
     return;
   }
-  int in_minor_collection = boxroot_in_minor_collection();
+  int in_minor_collection = bxr_in_minor_collection();
 
   if (in_minor_collection) ++stats.minor_collections;
   else ++stats.major_collections;
@@ -779,7 +779,7 @@ int rem_boxroot_setup()
   stats = empty_stats;
   pools = NULL;
   full_pools = NULL;
-  boxroot_setup_hooks(&scanning_callback, NULL);
+  bxr_setup_hooks(&scanning_callback, NULL);
   // we are done
   setup = 1;
   CRITICAL_SECTION_END();
