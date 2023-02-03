@@ -26,7 +26,7 @@ an idiomatic manipulation of OCaml roots from Rust, similar to
 We provide raw Rust bindings
 ([rust/ocaml-boxroot/](rust/ocaml-boxroot/) in this repository). These
 bindings should not be used directly; they are used by libraries such
-as [https://github.com/tizoc/ocaml-interop/](`ocaml-interop`) to
+as [`ocaml-interop`](https://github.com/tizoc/ocaml-interop/) to
 provide safe abstractions for the OCaml GC.
 
 ## Design
