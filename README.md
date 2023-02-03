@@ -1,14 +1,14 @@
-# Boxroot: fast movable roots for the OCaml C interface
+# Boxroot: fast movable roots for the OCaml-C and OCaml-Rust interfaces
 
-This repository hosts an experiment with a different root-registration
-API for the OCaml garbage collector. The new kind of roots are called
-`boxroot` (boxed roots).
+This repository hosts a new root-registration API for the OCaml
+garbage collector, compatible with OCaml 4 and OCaml 5. The new kind
+of roots are called `boxroot` (boxed roots).
 
-The traditional root-registration APIs let users decide which existing
-parts of memory should be considered as new roots by the runtime. With
-boxroots, it is our allocator, not the user, that decides where these
-roots are placed in memory. This extra flexibility allows for a more
-efficient implementation.
+The official root-registration APIs of OCaml let users decide which
+existing parts of memory should be considered as new roots by the
+runtime. With boxroots, it is our allocator, not the user, that
+decides where these roots are placed in memory. This extra flexibility
+allows for a more efficient implementation.
 
 We provide an implementation of this idea as a standalone C library
 ([boxroot/](boxroot/) in this repository), as a custom allocator using
@@ -22,6 +22,12 @@ data structures. This pattern appears to be common. Our original
 motivation for prototyping boxroots generalises that: it is to propose
 an idiomatic manipulation of OCaml roots from Rust, similar to
 `Box<T>` pointers.
+
+We provide raw Rust bindings
+([rust/ocaml-boxroot/](rust/ocaml-boxroot/) in this repository). These
+bindings should not be used directly; they are used by libraries such
+as [https://github.com/tizoc/ocaml-interop/](`ocaml-interop`) to
+provide safe abstractions for the OCaml GC.
 
 ## Design
 
@@ -93,7 +99,7 @@ available!
 ### Benchmark information
 
 The figures below are obtained with OCaml 4.14 and OCaml 5.0
-(develoment version), with CPU AMD Ryzen 5850U.
+(development version), with CPU AMD Ryzen 5850U.
 
 ### Permutations of a list
 
