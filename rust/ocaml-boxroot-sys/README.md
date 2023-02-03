@@ -7,7 +7,7 @@ efficient and flexible GC rooting mechanism. See
 This crate exposes the raw functionality of the Boxroot library as
 unsafe Rust functions. It is meant to be used by low-level libraries
 to expose GC roots for the OCaml GC as smart pointers in Rust (see the
-package `ocaml-interop`).
+crate `ocaml-interop`).
 
 ## Running tests
 

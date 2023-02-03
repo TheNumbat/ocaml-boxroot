@@ -1,5 +1,5 @@
-Working version
-===============
+ocaml-boxroot 0.3.0-rc.1
+========================
 
 ### General changes
 
@@ -58,7 +58,7 @@ Working version
 ### Packaging
 
 - API update for ocaml-boxroot-sys (breaking change).
-  (Guillaume Munch-Maccagnoni)
+  (Guillaume Munch-Maccagnoni, review by Zach Shipko)
 
 - Minor improvements.
   (Guillaume Munch-Maccagnoni)

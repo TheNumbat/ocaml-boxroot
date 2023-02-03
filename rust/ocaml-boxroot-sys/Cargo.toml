@@ -1,6 +1,6 @@
 [package]
 name = "ocaml-boxroot-sys"
-version = "0.3.0"
+version = "0.3.0-rc.1"
 authors = ["Guillaume Munch-Maccagnoni <Guillaume.Munch-Maccagnoni@inria.fr>",
            "Gabriel Scherer <Gabriel.Scherer@inria.fr>",
            "Bruno Deferrari <utizoc@gmail.com>"]
