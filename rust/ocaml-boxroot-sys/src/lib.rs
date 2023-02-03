@@ -9,7 +9,7 @@ pub type Value = isize;
 pub type ValueCell = core::cell::UnsafeCell<Value>;
 
 #[repr(transparent)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq, PartialOrd, Eq)]
 pub struct BoxRoot { contents: core::ptr::NonNull<ValueCell> }
 
 /// Documentation inside boxroot/boxroot.h (including rules for safe usage)
@@ -43,9 +43,6 @@ extern "C" {
     pub fn boxroot_teardown();
     pub fn boxroot_status() -> Status;
     pub fn boxroot_print_stats();
-
-    /// obsolete
-    pub fn boxroot_setup();
 }
 
 // Just a test to verify that it compiles and links right
