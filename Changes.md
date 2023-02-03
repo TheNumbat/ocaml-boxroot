@@ -1,5 +1,17 @@
-ocaml-boxroot 0.3.0-rc.1
-========================
+Working version
+===============
+
+### General changes
+
+### Internal changes
+
+### Experiments
+
+### Packaging
+
+
+ocaml-boxroot 0.3.0
+===================
 
 ### General changes
 
