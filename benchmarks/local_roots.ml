@@ -149,12 +149,12 @@ let () =
     (List.fold_left max 0 (List.map String.length (List.map fst implementations)))
     (Sys.getenv "ROOT") n;
   let fixpoint = impl.fixpoint in
-  let start_time = Sys.time () in
+  let start_time = Unix.gettimeofday () in
   let num_iter = 100_000_000 / n in
   for _i = 1 to num_iter do
     ignore (fixpoint (fun x -> if truncate x >= n then x else x +. 1.) 1.)
   done;
-  let duration = Sys.time () -. start_time in
+  let duration = Unix.gettimeofday () -. start_time in
   let time_ns = (duration *. 1E9) /. (float_of_int num_iter) in
   Printf.printf "%8.2fns\n%!" time_ns;
   if show_stats then (impl.stats (); print_newline ());

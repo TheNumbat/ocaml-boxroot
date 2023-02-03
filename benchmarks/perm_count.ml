@@ -49,8 +49,10 @@ let rec fact n = if n = 0 then 1L else Int64.(mul (of_int n) (fact (n - 1)))
 let () =
   Ref.Config.Ref.setup ();
   Printf.printf "%s: %!" Ref.Config.implem_name;
+  let before = Unix.gettimeofday () in
   let count = count_permutations n in
-  Printf.printf "%.2fs\n%!" (Sys.time ());
+  let after = Unix.gettimeofday () in
+  Printf.printf "%.2fs\n%!" (after -. before);
   assert (count = fact n);
   ignore (Sys.opaque_identity count);
   if Ref.Config.show_stats then
