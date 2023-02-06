@@ -38,7 +38,8 @@ build:
       - bench-log-5.0.txt
   before_script:
     - export OPAMCLI=2.0
-    - opam install --switch=5.0 dune
+    - opam install --switch=5.0 dune domain_shims
+    - opam install --switch=. dune domain_shims # the 4.14 local switch
   script:
     - echo "Testing Boxroot with OCaml 4.14"
     - eval $(opam env --switch=. --set-switch)

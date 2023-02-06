@@ -8,7 +8,7 @@
 (executable
 ;  (flags (:standard -runtime-variant d))
   (name par_perm_count)
-  (libraries unix ref choice)
+  (libraries unix domain_shims ref choice)
   (modules par_perm_count)
 )
 
