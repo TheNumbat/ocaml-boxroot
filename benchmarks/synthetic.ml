@@ -246,8 +246,10 @@ let n =
 let () =
   Ref.setup ();
   Printf.printf "%s: %!" Ref_config.implem_name;
+  let before = Unix.gettimeofday () in
   run n;
-  Printf.printf "%.2fs\n%!" (Sys.time ());
+  let after = Unix.gettimeofday () in
+  Printf.printf "%.2fs\n%!" (after -. before);
   if Ref_config.show_stats then
     Ref.print_stats ();
   Ref.teardown ();

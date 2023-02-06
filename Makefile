@@ -5,6 +5,7 @@ entry:
 	@echo "make all: build all benchmarks"
 	@echo "make run: run all benchmarks (important tests only)"
 	@echo "make run-perm_count: run the 'perm_count' benchmark"
+	@echo "make run-par_perm_count: run the parallel 'perm_count' benchmark (requires OCaml 5)"
 	@echo "make run-synthetic: run the 'synthetic' benchmark"
 	@echo "make run-globroots: run the 'globroots' benchmark"
 	@echo "make run-local_roots: run the 'local_roots' benchmark"
@@ -58,6 +59,11 @@ run_bench = \
 run-perm_count: all
 	$(call run_bench,"perm_count", \
 	  CHOICE=persistent N=10 dune exec ./benchmarks/perm_count.exe)
+
+.PHONY: run-par_perm_count
+run-par_perm_count: all
+	$(call run_bench,"par_perm_count", \
+	  CHOICE=persistent N=10 DOMS=4 dune exec ./benchmarks/par_perm_count.exe)
 
 .PHONY: run-synthetic
 run-synthetic: all
