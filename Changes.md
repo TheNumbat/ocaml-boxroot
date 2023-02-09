@@ -1,5 +1,5 @@
-ocaml-boxroot 0.3.0-rc.1
-========================
+ocaml-boxroot 0.3.0
+===================
 
 ### General changes
 
