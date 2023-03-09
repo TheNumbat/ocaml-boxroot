@@ -63,9 +63,9 @@ let _ =
   Ref.Config.Ref.setup ();
   Printf.printf "%s: %!" Ref.Config.implem_name;
   let module Test = MakeTest(Ref.Config.Ref) in
-  let before = Unix.gettimeofday () in
+  let before = Ref.Time.time () in
   Test.test n;
-  let after = Unix.gettimeofday () in
+  let after = Ref.Time.time () in
   Printf.printf "%.2fs\n%!" (after -. before);
   if Ref.Config.show_stats then
     Ref.Config.Ref.print_stats ();

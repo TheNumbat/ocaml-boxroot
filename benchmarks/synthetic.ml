@@ -1,5 +1,6 @@
 (* SPDX-License-Identifier: MIT *)
 module Ref_config = Ref.Config
+module Time = Ref.Time
 module Ref = Ref_config.Ref
 
 (* a synthetic benchmark with tunable parameters.
@@ -246,9 +247,9 @@ let n =
 let () =
   Ref.setup ();
   Printf.printf "%s: %!" Ref_config.implem_name;
-  let before = Unix.gettimeofday () in
+  let before = Time.time () in
   run n;
-  let after = Unix.gettimeofday () in
+  let after = Time.time () in
   Printf.printf "%.2fs\n%!" (after -. before);
   if Ref_config.show_stats then
     Ref.print_stats ();
