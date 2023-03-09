@@ -78,7 +78,9 @@ Older experiments are not thread-safe (at least not efficiently so):
 - `dll_boxroot`: a variant of `boxroot`, but using a simpler
   implementation with doubly-linked lists,
 - `rem_boxroot`: a variant of `boxroot`, but using a different
-  implementation using OCaml's remembered set.
+  implementation using OCaml's remembered set,
+- `bitmap_boxroot`: a variant of `boxroot` using a bitmap allocator
+  inspired by the Hotspot VM implementation of JNI global references.
 
 The various implementations (except the `ocaml` one) have similar
 memory representation, some on the OCaml heap and some outside of the

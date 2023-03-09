@@ -37,6 +37,7 @@ REF_IMPLS_MORE=\
 REF_IMPLS_MORE_MORE=\
   ocaml_ref \
   dll_boxroot \
+  bitmap_boxroot \
   rem_boxroot \
   global \
   $(EMPTY)
@@ -97,7 +98,7 @@ run-local_roots: all
 	$(foreach N, 1 2 $(if $(TEST_MORE),3 4,) 5 $(if $(TEST_MORE),8,) 10 \
 		           $(if $(TEST_MORE),30,) 100 $(if $(TEST_MORE),300,) 1000, \
 	  $(foreach ROOT, boxroot local $(if $(TEST_MORE), ocaml generational naive) \
-                    $(if $(TEST_MORE_MORE), ocaml_ref dll_boxroot rem_boxroot global), \
+                    $(if $(TEST_MORE_MORE), ocaml_ref dll_boxroot bitmap_boxroot rem_boxroot global), \
 	    && (N=$(N) ROOT=$(ROOT) $(DUNE_EXEC) ./benchmarks/local_roots.exe) \
 	  ) && echo "---")
 

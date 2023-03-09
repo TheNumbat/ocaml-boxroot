@@ -31,6 +31,7 @@ let implementations : (string * (module Ref)) list = [
   "generational", (module Generational_ref);
   "boxroot", (module Boxroot_ref);
   "dll_boxroot", (module Dll_boxroot_ref);
+  "bitmap_boxroot", (module Bitmap_boxroot_ref);
   "rem_boxroot", (module Rem_boxroot_ref);
   "gc", (module Gc_ref);
   "ocaml_ref", (module Ocaml_ref);
