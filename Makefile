@@ -45,6 +45,7 @@ ifeq ($(TEST_MORE),2)
 TEST_MORE_MORE=1
 endif
 
+DUNE_EXEC = dune exec --display=quiet
 
 run_bench = \
   echo "Benchmark: $(1)" \
@@ -58,12 +59,12 @@ run_bench = \
 .PHONY: run-perm_count
 run-perm_count: all
 	$(call run_bench,"perm_count", \
-	  CHOICE=persistent N=10 dune exec ./benchmarks/perm_count.exe)
+	  CHOICE=persistent N=10 $(DUNE_EXEC) ./benchmarks/perm_count.exe)
 
 .PHONY: run-par_perm_count
 run-par_perm_count: all
 	$(call run_bench,"par_perm_count", \
-	  CHOICE=persistent N=10 DOMS=4 dune exec ./benchmarks/par_perm_count.exe)
+	  CHOICE=persistent N=10 DOMS=4 $(DUNE_EXEC) ./benchmarks/par_perm_count.exe)
 
 .PHONY: run-synthetic
 run-synthetic: all
@@ -77,7 +78,7 @@ run-synthetic: all
 	    ROOT_SURVIVAL_RATE=0.99 \
 	    GC_PROMOTION_RATE=0.1 \
 	    GC_SURVIVAL_RATE=0.5 \
-	    dune exec ./benchmarks/synthetic.exe \
+	    $(DUNE_EXEC) ./benchmarks/synthetic.exe \
 	)
 
 .PHONY: run-globroots
@@ -87,7 +88,7 @@ run-globroots: all
 .PHONY: run-globroots-all
 run-globroots-all: all
 	$(call run_bench,"globroots", \
-	  N=500_000 dune exec ./benchmarks/globroots.exe)
+	  N=500_000 $(DUNE_EXEC) ./benchmarks/globroots.exe)
 
 .PHONY: run-local_roots
 run-local_roots: all
@@ -97,7 +98,7 @@ run-local_roots: all
 		           $(if $(TEST_MORE),30,) 100 $(if $(TEST_MORE),300,) 1000, \
 	  $(foreach ROOT, boxroot local $(if $(TEST_MORE), ocaml generational naive) \
                     $(if $(TEST_MORE_MORE), ocaml_ref dll_boxroot rem_boxroot global), \
-	    && (N=$(N) ROOT=$(ROOT) dune exec ./benchmarks/local_roots.exe) \
+	    && (N=$(N) ROOT=$(ROOT) $(DUNE_EXEC) ./benchmarks/local_roots.exe) \
 	  ) && echo "---")
 
 .PHONY: run
@@ -113,7 +114,7 @@ run-more:
 
 .PHONY: test-boxroot
 test-boxroot: all
-	N=10 REF=boxroot CHOICE=ephemeral dune exec benchmarks/perm_count.exe
+	N=10 REF=boxroot CHOICE=ephemeral $(DUNE_EXEC) benchmarks/perm_count.exe
 
 .PHONY: test-rs
 test-rs:
