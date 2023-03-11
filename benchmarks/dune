@@ -1,35 +1,35 @@
 (executable
 ;  (flags (:standard -runtime-variant d))
   (name perm_count)
-  (libraries unix ref choice)
+  (libraries ref choice)
   (modules perm_count)
 )
 
 (executable
 ;  (flags (:standard -runtime-variant d))
   (name par_perm_count)
-  (libraries unix domain_shims ref choice)
+  (libraries domain_shims ref choice)
   (modules par_perm_count)
 )
 
 (executable
 ;  (flags (:standard -runtime-variant d))
   (name synthetic)
-  (libraries unix ref)
+  (libraries ref)
   (modules synthetic)
 )
 
 (executable
 ;  (flags (:standard -runtime-variant d))
   (name globroots)
-  (libraries unix ref)
+  (libraries ref)
   (modules globroots)
 )
 
 (executable
 ;  (flags (:standard -runtime-variant d))
   (name local_roots)
-  (libraries unix)
+  (libraries ref)
   (foreign_archives
      ../boxroot/boxroot
   )
