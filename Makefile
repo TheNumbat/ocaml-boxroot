@@ -9,6 +9,7 @@ entry:
 	@echo "make run-synthetic: run the 'synthetic' benchmark"
 	@echo "make run-globroots: run the 'globroots' benchmark"
 	@echo "make run-local_roots: run the 'local_roots' benchmark"
+	@echo "(replace run with hyper to use hyperfine)"
 	@echo "make test: test boxroots on 'perm_count' and test ocaml-boxroot-sys"
 	@echo "make clean"
 	@echo
@@ -47,9 +48,10 @@ TEST_MORE_MORE=1
 endif
 
 DUNE_EXEC = dune exec --display=quiet
+HYPER = hyperfine --warmup 1 --min-runs 20
 
 check_tsc = \
-  sh -c "if [ tsc != `cat /sys/devices/system/clocksource/clocksource0/current_clocksource` ]; then echo \"Warning: /sys/devices/system/clocksource/clocksource0/current_clocksource is not tsc\";fi;"
+  sh -c "if [ tsc != `cat /sys/devices/system/clocksource/clocksource0/current_clocksource` ]; then echo \"Warning: /sys/devices/system/clocksource/clocksource0/current_clocksource is not tsc\";fi;";
 
 run_bench = \
 	$(check_tsc) \
@@ -57,23 +59,20 @@ run_bench = \
   && echo "---" \
   $(foreach REF, $(REF_IMPLS) $(if $(TEST_MORE),$(REF_IMPLS_MORE),) \
 	               $(if $(TEST_MORE_MORE),$(REF_IMPLS_MORE_MORE),), \
-    && (REF=$(REF) $(2)) \
+    && ($(2) "REF=$(REF) $(3)") \
   ) \
 	&& echo "---"
 
-.PHONY: run-perm_count
-run-perm_count: all
-	$(call run_bench,"perm_count", \
+run_perm_count = \
+	$(call run_bench,"perm_count", $(1), \
 	  CHOICE=persistent N=10 $(DUNE_EXEC) ./benchmarks/perm_count.exe)
 
-.PHONY: run-par_perm_count
-run-par_perm_count: all
-	$(call run_bench,"par_perm_count", \
+run_par_perm_count = \
+	$(call run_bench,"par_perm_count", $(1), \
 	  CHOICE=persistent N=10 DOMS=4 $(DUNE_EXEC) ./benchmarks/par_perm_count.exe)
 
-.PHONY: run-synthetic
-run-synthetic: all
-	$(call run_bench,"synthetic", \
+run_synthetic = \
+	$(call run_bench,"synthetic", $(1), \
 	    N=8 \
 	    SMALL_ROOTS=10_000 \
 	    YOUNG_RATIO=1 \
@@ -86,17 +85,11 @@ run-synthetic: all
 	    $(DUNE_EXEC) ./benchmarks/synthetic.exe \
 	)
 
-.PHONY: run-globroots
-run-globroots: all
-	$(MAKE) run-globroots-all
-
-.PHONY: run-globroots-all
-run-globroots-all: all
-	$(call run_bench,"globroots", \
+run_globroots = \
+	$(call run_bench,"globroots", $(1), \
 	  N=500_000 $(DUNE_EXEC) ./benchmarks/globroots.exe)
 
-.PHONY: run-local_roots
-run-local_roots: all
+run_local_roots = \
 	$(check_tsc) \
 	echo "Benchmark: local_roots" \
 	&& echo "---" \
@@ -104,19 +97,56 @@ run-local_roots: all
 		           $(if $(TEST_MORE),30,) 100 $(if $(TEST_MORE),300,) 1000, \
 	  $(foreach ROOT, boxroot local $(if $(TEST_MORE), ocaml generational naive) \
                     $(if $(TEST_MORE_MORE), ocaml_ref dll_boxroot bitmap_boxroot rem_boxroot global), \
-	    && (N=$(N) ROOT=$(ROOT) $(DUNE_EXEC) ./benchmarks/local_roots.exe) \
+	    && ($(1) "N=$(N) ROOT=$(ROOT) $(DUNE_EXEC) ./benchmarks/local_roots.exe") \
 	  ) && echo "---")
 
-.PHONY: run
+.PHONY: run-perm_count hyper-perm_count
+run-perm_count: all
+	$(call run_perm_count, sh -c)
+hyper-perm_count: all
+	$(call run_perm_count, $(HYPER))
+
+.PHONY: run-par_perm_count hyper-par_perm_count
+run-par_perm_count: all
+	$(call run_par_perm_count, sh -c)
+hyper-par_perm_count: all
+	$(call run_par_perm_count, $(HYPER))
+
+.PHONY: run-synthetic hyper-synthetic
+run-synthetic: all
+	$(call run_synthetic, sh -c)
+hyper-synthetic: all
+	$(call run_synthetic, $(HYPER))
+
+.PHONY: run-globroots hyper-globroots
+run-globroots: all
+	$(call run_globroots, sh -c)
+hyper-globroots: all
+	$(call run_globroots, $(HYPER))
+
+.PHONY: run-local_roots hyper-local_roots
+run-local_roots: all
+	$(call run_local_roots, sh -c)
+hyper-local_roots: all
+	$(call run_local_roots, $(HYPER))
+
+.PHONY: run hyper
 run:
 	$(MAKE) run-perm_count
 	$(MAKE) run-synthetic
 	$(MAKE) run-globroots
 	$(MAKE) run-local_roots
+hyper:
+	$(MAKE) hyper-perm_count
+	$(MAKE) hyper-synthetic
+	$(MAKE) hyper-globroots
+	$(MAKE) hyper-local_roots
 
-.PHONY: run-more
+.PHONY: run-more hyper-more
 run-more:
 	$(MAKE) run TEST_MORE=1
+hyper-more:
+	$(MAKE) hyper TEST_MORE=1
 
 .PHONY: test-boxroot
 test-boxroot: all
