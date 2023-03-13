@@ -105,7 +105,12 @@ struct stats {
   int64_t total_major_time;
   int64_t peak_minor_time;
   int64_t peak_major_time;
+  long long total_alloced_pools;
+  long long total_emptied_pools;
+  long long total_freed_pools;
+  long long peak_pools; // max live pools at any time
   long long is_young; // count 'is_young_block' checks
+  long long ring_operations; // Number of times p->next is mutated
 };
 
 static struct stats stats;
@@ -146,6 +151,7 @@ inline static void ring_link(ring p, ring q)
 {
   p->next = q;
   q->prev = p;
+  if (DEBUG) incr(&stats.ring_operations);
 }
 
 // insert the ring [source] at the back of [*target].
@@ -220,6 +226,8 @@ static ring create_chunk()
     DEBUGassert(false);
     return NULL;
   }
+  long long live_pools = ++stats.total_alloced_pools - stats.total_freed_pools;
+  if (live_pools > stats.peak_pools) stats.peak_pools = live_pools;
   ring_link(new, new);
   for (int i = 0; i < CHUNK_SIZE; i++) *chunk_index(new, i) = 0;
   store_relaxed(&new->free, BITMAP_EMPTY);
@@ -231,6 +239,7 @@ static ring create_chunk()
 static void delete_chunk(chunk *chunk)
 {
   free(chunk);
+  ++stats.total_freed_pools;
 }
 
 static bool chunk_is_full(chunk *chunk) {
@@ -425,11 +434,18 @@ static int64_t time_counter(void)
 #endif
 }
 
-static int average(long long total_work, int nb_collections)
+// unit: 1=KiB, 2=MiB
+static long long kib_of_pools(long long count, int unit)
 {
-  if (nb_collections <= 0) return -1;
+  long long pool_size_b = sizeof(chunk);
+  long long unit_size = (long long)1 << (unit * 10);
+  double size = (double)pool_size_b / (double)unit_size;
+  return (long long)((double)count * size);
+}
+static double average(long long total, long long units)
+{
   // round to nearest
-  return (total_work + (nb_collections / 2)) / nb_collections;
+  return ((double)total) / (double)units;
 }
 
 void bitmap_boxroot_print_stats()
@@ -438,6 +454,19 @@ void bitmap_boxroot_print_stats()
          "major collections (and others): %d\n",
          stats.minor_collections,
          stats.major_collections);
+
+  printf("total allocated pools: %'lld (%'lld MiB)\n"
+         "peak allocated pools: %'lld (%'lld MiB)\n"
+         "total emptied pools: %'lld (%'lld MiB)\n"
+         "total freed pools: %'lld (%'lld MiB)\n",
+         stats.total_alloced_pools,
+         kib_of_pools(stats.total_alloced_pools, 2),
+         stats.peak_pools,
+         kib_of_pools(stats.peak_pools, 2),
+         stats.total_emptied_pools,
+         kib_of_pools(stats.total_emptied_pools, 2),
+         stats.total_freed_pools,
+         kib_of_pools(stats.total_freed_pools, 2));
 
 #if DEBUG != 0
   printf("total created: %'d\n"
@@ -450,31 +479,40 @@ void bitmap_boxroot_print_stats()
   printf("is_young_block: %'lld\n",
          stats.is_young);
 #endif
-  int scanning_work_minor = average(stats.total_scanning_work_minor, stats.minor_collections);
-  int scanning_work_major = average(stats.total_scanning_work_major, stats.major_collections);
+
+  double ring_operations_per_pool =
+    average(stats.ring_operations, stats.total_alloced_pools);
+
+  printf("total ring operations: %'lld\n"
+         "ring operations per pool: %.2f\n",
+         stats.ring_operations,
+         ring_operations_per_pool);
+
+  double scanning_work_minor = average(stats.total_scanning_work_minor, stats.minor_collections);
+  double scanning_work_major = average(stats.total_scanning_work_major, stats.major_collections);
   long long total_scanning_work = stats.total_scanning_work_minor + stats.total_scanning_work_major;
 
-  int64_t time_per_minor = stats.minor_collections ?
-    stats.total_minor_time / stats.minor_collections : 0;
-  int64_t time_per_major = stats.major_collections ?
-    stats.total_major_time / stats.major_collections : 0;
-
-  printf("work per minor: %'d\n"
-         "work per major: %'d\n"
+  printf("work per minor: %'.0f\n"
+         "work per major: %'.0f\n"
          "total scanning work: %'lld (%'lld minor, %'lld major)\n",
          scanning_work_minor,
          scanning_work_major,
          total_scanning_work, stats.total_scanning_work_minor, stats.total_scanning_work_major);
 
 #if defined(POSIX_CLOCK)
-  printf("average time per minor: %'lldns\n"
-         "average time per major: %'lldns\n"
-         "peak time per minor: %'lldns\n"
-         "peak time per major: %'lldns\n",
-         (long long)time_per_minor,
-         (long long)time_per_major,
-         (long long)stats.peak_minor_time,
-         (long long)stats.peak_major_time);
+  double time_per_minor =
+    average(stats.total_minor_time, stats.minor_collections) / 1000;
+  double time_per_major =
+    average(stats.total_major_time, stats.major_collections) / 1000;
+
+  printf("average time per minor: %'.3fµs\n"
+         "average time per major: %'.3fµs\n"
+         "peak time per minor: %'.3fµs\n"
+         "peak time per major: %'.3fµs\n",
+         time_per_minor,
+         time_per_major,
+         ((double)stats.peak_minor_time) / 1000,
+         ((double)stats.peak_major_time) / 1000);
 #endif
 }
 
