@@ -27,6 +27,7 @@ external local_fixpoint : (float -> float) -> float -> float = "local_fixpoint"
 external naive_fixpoint : (float -> float) -> float -> float = "naive_fixpoint"
 external boxroot_fixpoint : (float -> float) -> float -> float = "boxroot_fixpoint"
 external dll_boxroot_fixpoint : (float -> float) -> float -> float = "dll_boxroot_fixpoint"
+external bitmap_boxroot_fixpoint : (float -> float) -> float -> float = "bitmap_boxroot_fixpoint"
 external rem_boxroot_fixpoint : (float -> float) -> float -> float = "rem_boxroot_fixpoint"
 external generational_fixpoint : (float -> float) -> float -> float = "generational_root_fixpoint"
 external global_fixpoint : (float -> float) -> float -> float = "global_root_fixpoint"
@@ -38,6 +39,10 @@ external boxroot_stats : unit -> unit = "boxroot_stats_caml"
 external dll_boxroot_setup : unit -> unit = "dll_boxroot_setup_caml"
 external dll_boxroot_teardown : unit -> unit = "dll_boxroot_teardown_caml"
 external dll_boxroot_stats : unit -> unit = "dll_boxroot_stats_caml"
+
+external bitmap_boxroot_setup : unit -> unit = "bitmap_boxroot_setup_caml"
+external bitmap_boxroot_teardown : unit -> unit = "bitmap_boxroot_teardown_caml"
+external bitmap_boxroot_stats : unit -> unit = "bitmap_boxroot_stats_caml"
 
 external rem_boxroot_setup : unit -> unit = "rem_boxroot_setup_caml"
 external rem_boxroot_teardown : unit -> unit = "rem_boxroot_teardown_caml"
@@ -100,6 +105,13 @@ let dll_boxroot = {
   stats = dll_boxroot_stats;
 }
 
+let bitmap_boxroot = {
+  fixpoint = bitmap_boxroot_fixpoint;
+  setup = bitmap_boxroot_setup;
+  teardown = bitmap_boxroot_teardown;
+  stats = bitmap_boxroot_stats;
+}
+
 let rem_boxroot = {
   fixpoint = rem_boxroot_fixpoint;
   setup = rem_boxroot_setup;
@@ -114,6 +126,7 @@ let implementations = [
   "naive", naive;
   "boxroot", boxroot;
   "dll_boxroot", dll_boxroot;
+  "bitmap_boxroot", bitmap_boxroot;
   "rem_boxroot", rem_boxroot;
   "generational", generational;
   "global", global;

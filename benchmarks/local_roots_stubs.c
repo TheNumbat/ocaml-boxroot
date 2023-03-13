@@ -80,6 +80,11 @@ value naive_fixpoint(value f, value x)
 #include "local_roots_gen_boxroot.h"
 #undef MY_PREFIX
 
+#include "../boxroot/bitmap_boxroot.h"
+#define MY_PREFIX bitmap_box
+#include "local_roots_gen_boxroot.h"
+#undef MY_PREFIX
+
 #include "../boxroot/rem_boxroot.h"
 #define MY_PREFIX rem_box
 #include "local_roots_gen_boxroot.h"

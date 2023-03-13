@@ -7,6 +7,7 @@
     (extra_deps
       ../../boxroot/boxroot.h
       ../../boxroot/dll_boxroot.h
+      ../../boxroot/bitmap_boxroot.h
       ../../boxroot/rem_boxroot.h
       ../../boxroot/ocaml_hooks.h
       ../../boxroot/platform.h
@@ -16,6 +17,7 @@
       gc
       boxroot
       dll_boxroot
+      bitmap_boxroot
       rem_boxroot
       global
       generational

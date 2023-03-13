@@ -7,6 +7,10 @@ Working version
 
 ### Experiments
 
+- Add a bitmap allocator inspired by the Hotspot VM implementation of
+  JNI global references, for benchmarking purposes.
+  (Guillaume Munch-Maccagnoni)
+
 ### Packaging
 
 
