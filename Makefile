@@ -47,7 +47,11 @@ endif
 
 DUNE_EXEC = dune exec --display=quiet
 
+check_tsc = \
+  sh -c "if [ tsc != `cat /sys/devices/system/clocksource/clocksource0/current_clocksource` ]; then echo \"Warning: /sys/devices/system/clocksource/clocksource0/current_clocksource is not tsc\";fi;"
+
 run_bench = \
+	$(check_tsc) \
   echo "Benchmark: $(1)" \
   && echo "---" \
   $(foreach REF, $(REF_IMPLS) $(if $(TEST_MORE),$(REF_IMPLS_MORE),) \
@@ -92,6 +96,7 @@ run-globroots-all: all
 
 .PHONY: run-local_roots
 run-local_roots: all
+	$(check_tsc) \
 	echo "Benchmark: local_roots" \
 	&& echo "---" \
 	$(foreach N, 1 2 $(if $(TEST_MORE),3 4,) 5 $(if $(TEST_MORE),8,) 10 \
