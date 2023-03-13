@@ -48,7 +48,7 @@ TEST_MORE_MORE=1
 endif
 
 DUNE_EXEC = dune exec --display=quiet
-HYPER = hyperfine --warmup 1 --min-runs 20
+HYPER = hyperfine --warmup 2 --min-runs 20
 
 check_tsc = \
   sh -c "if [ tsc != `cat /sys/devices/system/clocksource/clocksource0/current_clocksource` ]; then echo \"Warning: /sys/devices/system/clocksource/clocksource0/current_clocksource is not tsc\";fi;";

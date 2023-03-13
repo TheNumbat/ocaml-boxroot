@@ -126,13 +126,14 @@ static struct stats stats;
    [action]: an expression that can refer to [elem],
              and should preserve the validity of [elem] and [ring].
 */
-#define FOREACH_ELEM_IN_RING(elem, ring, action) do {      \
-    if (ring == NULL) break;                               \
-    chunk *chunk = ring;                                   \
-    do {                                                   \
-      FOREACH_ELEM_IN_CHUNK(elem, chunk, action);          \
-      chunk = chunk->next;                                 \
-    } while (chunk != ring);                               \
+#define FOREACH_ELEM_IN_RING(elem, r, action) do {             \
+    ring __end = (r);                                          \
+    if (__end == NULL) break;                                  \
+    chunk *__chunk = __end;                                    \
+    do {                                                       \
+      FOREACH_ELEM_IN_CHUNK(elem, __chunk, action);            \
+      __chunk = __chunk->next;                                 \
+    } while (__chunk != __end);                                \
   } while (0)
 
 #define FOREACH_ELEM_IN_CHUNK(elem, chunk, action) do {                 \
@@ -378,7 +379,7 @@ static void validate_all_rings()
 }
 
 // returns the amount of work done
-static int scan_ring(scanning_action action, void *data, ring r)
+static int scan_ring_gen(scanning_action action, void *data, ring r)
 {
   int work = 0;
   FOREACH_ELEM_IN_RING(elem, r, {
@@ -390,13 +391,39 @@ static int scan_ring(scanning_action action, void *data, ring r)
   return work;
 }
 
+// returns the amount of work done
+static int scan_ring_young(scanning_action action, void *data)
+{
+#if OCAML_MULTICORE
+  /* If a <= b - 2 then
+     a < x && x < b  <=>  x - a - 1 <= x - b - 2 (unsigned comparison)
+  */
+  uintnat young_start = (uintnat)caml_minor_heaps_start + 1;
+  uintnat young_range = (uintnat)caml_minor_heaps_end - 1 - young_start;
+#else
+  uintnat young_start = (uintnat)Caml_state->young_start;
+  uintnat young_range = (uintnat)Caml_state->young_end - young_start;
+#endif
+  int work = 0;
+  FOREACH_ELEM_IN_RING(elem, rings.young, {
+      value v = *elem;
+      DEBUGassert(v != 0);
+      if ((uintnat)v - young_start <= young_range
+          && BXR_LIKELY(Is_block(v))) {
+        CALL_GC_ACTION(action, data, v, elem);
+        work++;
+      }
+    });
+  return work;
+}
+
 static void scan_roots(scanning_action action, void *data)
 {
   int work = 0;
   if (DEBUG) validate_all_rings();
   lock_rings();
-  work += scan_ring(action, data, rings.young);
   if (bxr_in_minor_collection()) {
+    work += scan_ring_young(action, data);
     if (rings.young != NULL) {
       chunk *chunk = rings.young;
       do {
@@ -408,7 +435,8 @@ static void scan_roots(scanning_action action, void *data)
     rings.young = NULL;
     stats.total_scanning_work_minor += work;
   } else {
-    work += scan_ring(action, data, rings.old);
+    work += scan_ring_gen(action, data, rings.young);
+    work += scan_ring_gen(action, data, rings.old);
     stats.total_scanning_work_major += work;
   }
   unlock_rings();
