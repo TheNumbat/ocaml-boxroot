@@ -56,6 +56,7 @@ typedef struct chunk {
   value slot[CHUNK_SIZE];
   struct chunk *prev;
   struct chunk *next;
+  bool is_young;
   _Atomic(bitmap) free;
 } chunk;
 
@@ -231,6 +232,7 @@ static ring create_chunk()
   ring_link(new, new);
   for (int i = 0; i < CHUNK_SIZE; i++) *chunk_index(new, i) = 0;
   store_relaxed(&new->free, BITMAP_EMPTY);
+  new->is_young = false;
   DEBUGassert(new == chunk_of_root(&new->slot[0]));
   DEBUGassert(new == chunk_of_root(&new->slot[CHUNK_SIZE - 1]));
   return new;
@@ -247,20 +249,37 @@ static bool chunk_is_full(chunk *chunk) {
 }
 
 /* holds the lock */
-static chunk *get_available_chunk(ring *target)
+static chunk *get_available_chunk(bool young)
 {
-  chunk *head = *target;
-  if (head != NULL && !chunk_is_full(head)) return head;
-  /* push a new empty chunk */
-  chunk *new = create_chunk();
+  ring *target = young ? &rings.young : &rings.old;
+  chunk *new = *target;
+  if (new != NULL && !chunk_is_full(new)) return new;
+  if (young && rings.old != NULL && !chunk_is_full(rings.old)) {
+    /* demote an old chunk */
+    new = ring_pop(&rings.old);
+  } else {
+    /* push a new empty chunk */
+    new = create_chunk();
+  }
+  new->is_young = young;
   ring_push_front(new, target);
   DEBUGassert(!chunk_is_full(new));
   return new;
 }
 
 /* holds the lock */
-static void alloc_from_chunk(chunk *chunk, value init,
-                             value **root_out, bool *is_full_out)
+static void reclassify_chunk(chunk *chunk)
+{
+  bitmap free = load_relaxed(&chunk->free);
+  ring *target = chunk->is_young ? &rings.young : &rings.old;
+  ring_remove_chunk(chunk);
+  if (free == BITMAP_EMPTY) { delete_chunk(chunk); }
+  else if (free == 0) { ring_push_back(chunk, target); }
+  else { ring_push_front(chunk, target); }
+}
+
+/* holds the lock */
+static void alloc_from_chunk(chunk *chunk, value init, value **root_out)
 {
   bitmap free = load_relaxed(&chunk->free);
   DEBUGassert(free != 0);
@@ -269,13 +288,13 @@ static void alloc_from_chunk(chunk *chunk, value init,
   *slot = init;
   *root_out = slot;
   bitmap bitmask = (bitmap)1 << index;
-  bitmap old = atomic_fetch_sub_explicit(&chunk->free, bitmask,
+  bitmap old = atomic_fetch_xor_explicit(&chunk->free, bitmask,
                                          memory_order_relaxed);
   DEBUGassert((chunk->free & bitmask) == 0);
-  DEBUGassert((chunk->free | bitmask) == old); // RACY
-  bool is_full = !(old - bitmask);
-  DEBUGassert(is_full == chunk_is_full(chunk)); // RACY
-  *is_full_out = is_full;
+//  DEBUGassert((chunk->free | bitmask) == old); // RACY
+  bool is_full = !(old ^ bitmask);
+//  DEBUGassert(is_full == chunk_is_full(chunk)); // RACY
+  if (is_full) reclassify_chunk(chunk);
 }
 
 /* Returns whether the chunk is a candidate for reclassifying */
@@ -286,23 +305,13 @@ static bool remove_from_chunk(value *slot, chunk *chunk)
   bitmap free = load_relaxed(&chunk->free);
   bitmap bitmask = (bitmap)1 << index;
   DEBUGassert((free & bitmask) == 0);
-  bitmap old = atomic_fetch_add_explicit(&chunk->free, bitmask,
+  bitmap old = atomic_fetch_xor_explicit(&chunk->free, bitmask,
                                          memory_order_relaxed);
   DEBUGassert(chunk->free & bitmask);
   bool was_full = !old;
-  bool is_empty = ((old + bitmask) == BITMAP_EMPTY);
+  bool is_empty = ((old ^ bitmask) == BITMAP_EMPTY);
   DEBUGassert((chunk->free == BITMAP_EMPTY) == is_empty); // RACY
   return was_full || is_empty;
-}
-
-/* holds the lock */
-static void reclassify_chunk(chunk *chunk, ring *target)
-{
-  bitmap free = load_relaxed(&chunk->free);
-  ring_remove_chunk(chunk);
-  if (free == BITMAP_EMPTY) { delete_chunk(chunk); }
-  else if (free == 0) { ring_push_back(chunk, target); }
-  else { ring_push_front(chunk, target); }
 }
 
 /* }}} */
@@ -315,46 +324,26 @@ static inline int is_young_block(value v)
   return Is_block(v) && Is_young(v);
 }
 
-static inline ring *target_ring(value v)
-{
-  return is_young_block(v) ? &rings.young : &rings.old;
-}
-
 bitmap_boxroot bitmap_boxroot_create(value init)
 {
   if (DEBUG) ++stats.total_create;
-  ring *target = target_ring(init);
+  bool young = true/*is_young_block(init)*/;
   lock_rings();
-  chunk *chunk = get_available_chunk(target);
+  chunk *chunk = get_available_chunk(young);
   value *root;
-  bool is_full;
-  alloc_from_chunk(chunk, init, &root, &is_full);
-  if (is_full) reclassify_chunk(chunk, target);
+  alloc_from_chunk(chunk, init, &root);
   unlock_rings();
   return (bitmap_boxroot)root;
 }
 
 void bitmap_boxroot_delete(bitmap_boxroot root)
 {
-  ring *target = target_ring(bitmap_boxroot_get(root));
   chunk *chunk = chunk_of_root(root);
   bool maybe_reclassify = remove_from_chunk((value *)root, chunk);
-  /* Race here if calling bitmap_boxroot_delete without domain lock:
-
-     target_ring       ||
-     remove_from_chunk ||
-                       || minor_collection
-     reclassify_chunk  ||
-
-  This race can lead to reclassify as young an old chunk. Then later
-  calling bitmap_boxroot_delete on a root of this chunk can reclassify
-  the chunk as old while young roots have been allocated in it in the
-  meanwhile, leading to a crash after the next minor GC. */
-
-  if (maybe_reclassify && chunk != *target) {
-    /* Heuristic: keep empty chunk if at the head */
+  if (maybe_reclassify) {
     lock_rings();
-    reclassify_chunk(chunk, target);
+    /* Heuristic: keep empty chunk if at the head */
+    if (chunk != rings.young && chunk != rings.old) reclassify_chunk(chunk);
     unlock_rings();
   }
 }
@@ -362,7 +351,7 @@ void bitmap_boxroot_delete(bitmap_boxroot root)
 void bitmap_boxroot_modify(bitmap_boxroot *root, value new_value)
 {
   value *old_value = (value *)*root;
-  if (is_young_block(*old_value) == is_young_block(new_value)) {
+  if (!is_young_block(new_value) || is_young_block(*old_value)) {
     *old_value = new_value;
   } else {
     bitmap_boxroot_delete(*root);
@@ -408,7 +397,14 @@ static void scan_roots(scanning_action action, void *data)
   lock_rings();
   work += scan_ring(action, data, rings.young);
   if (bxr_in_minor_collection()) {
-    if (rings.young != NULL) ring_push_back(rings.young, &rings.old);
+    if (rings.young != NULL) {
+      chunk *chunk = rings.young;
+      do {
+        chunk->is_young = false;
+        chunk = chunk->next;
+      } while (chunk != rings.young);
+      ring_push_back(rings.young, &rings.old);
+    }
     rings.young = NULL;
     stats.total_scanning_work_minor += work;
   } else {
