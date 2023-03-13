@@ -37,6 +37,7 @@
 /* {{{ Config */
 
 #define GENERATIONAL 1
+#define THREAD_SAFE 1
 
 /* }}} */
 
@@ -93,8 +94,28 @@ static struct {
 } rings;
 
 mutex_t rings_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+#if THREAD_SAFE
+
 static void lock_rings(void) { bxr_mutex_lock(&rings_mutex); }
 static void unlock_rings(void) { bxr_mutex_unlock(&rings_mutex); }
+static bitmap atomic_xor(_Atomic(bitmap) *dst, bitmap src)
+{
+  return atomic_fetch_xor_explicit(dst, src, memory_order_relaxed);
+}
+
+#else
+
+static void lock_rings(void) { }
+static void unlock_rings(void) { }
+static bitmap atomic_xor(_Atomic(bitmap) *dst, bitmap src)
+{
+  bitmap old = load_relaxed(dst);
+  store_relaxed(dst, old ^ src);
+  return old;
+}
+
+#endif
 
 static void validate_all_rings();
 
@@ -294,8 +315,7 @@ static void alloc_from_chunk(chunk *chunk, value init, value **root_out)
   *slot = init;
   *root_out = slot;
   bitmap bitmask = (bitmap)1 << index;
-  bitmap old = atomic_fetch_xor_explicit(&chunk->free, bitmask,
-                                         memory_order_relaxed);
+  bitmap old = atomic_xor(&chunk->free, bitmask);
   DEBUGassert((chunk->free & bitmask) == 0);
 //  DEBUGassert((chunk->free | bitmask) == old); // RACY
   bool is_full = !(old ^ bitmask);
@@ -311,8 +331,7 @@ static bool remove_from_chunk(value *slot, chunk *chunk)
   bitmap free = load_relaxed(&chunk->free);
   bitmap bitmask = (bitmap)1 << index;
   DEBUGassert((free & bitmask) == 0);
-  bitmap old = atomic_fetch_xor_explicit(&chunk->free, bitmask,
-                                         memory_order_relaxed);
+  bitmap old = atomic_xor(&chunk->free, bitmask);
   DEBUGassert(chunk->free & bitmask);
   bool was_full = !old;
   bool is_empty = ((old ^ bitmask) == BITMAP_EMPTY);
