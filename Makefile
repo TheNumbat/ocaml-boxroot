@@ -27,18 +27,26 @@ clean:
 	dune clean
 
 EMPTY=
+
+ifdef IMPL
+REF_IMPLS=$(IMPL)
+LOCAL_IMPLS=$(IMPL)
+else
 REF_IMPLS=\
   boxroot \
   gc \
   $(EMPTY)
+LOCAL_IMPLS=boxroot local
+endif
+
 REF_IMPLS_MORE=\
   ocaml \
   generational \
+  bitmap_boxroot \
+  dll_boxroot \
   $(EMPTY)
 REF_IMPLS_MORE_MORE=\
   ocaml_ref \
-  dll_boxroot \
-  bitmap_boxroot \
   rem_boxroot \
   global \
   $(EMPTY)
@@ -54,11 +62,12 @@ check_tsc = \
   sh -c "if [ tsc != `cat /sys/devices/system/clocksource/clocksource0/current_clocksource` ]; then echo \"Warning: /sys/devices/system/clocksource/clocksource0/current_clocksource is not tsc\";fi;";
 
 run_bench = \
-	$(check_tsc) \
+  $(check_tsc) \
   echo "Benchmark: $(1)" \
   && echo "---" \
-  $(foreach REF, $(REF_IMPLS) $(if $(TEST_MORE),$(REF_IMPLS_MORE),) \
-	               $(if $(TEST_MORE_MORE),$(REF_IMPLS_MORE_MORE),), \
+  $(foreach REF, $(REF_IMPLS) \
+                 $(if $(TEST_MORE),$(REF_IMPLS_MORE),) \
+                 $(if $(TEST_MORE_MORE),$(REF_IMPLS_MORE_MORE),), \
     && ($(2) "REF=$(REF) $(3)") \
   ) \
 	&& echo "---"
@@ -94,11 +103,20 @@ run_local_roots = \
 	echo "Benchmark: local_roots" \
 	&& echo "---" \
 	$(foreach N, 1 2 $(if $(TEST_MORE),3 4,) 5 $(if $(TEST_MORE),8,) 10 \
-		           $(if $(TEST_MORE),30,) 100 $(if $(TEST_MORE),300,) 1000, \
-	  $(foreach ROOT, boxroot local $(if $(TEST_MORE), ocaml generational naive) \
-                    $(if $(TEST_MORE_MORE), ocaml_ref dll_boxroot bitmap_boxroot rem_boxroot global), \
-	    && ($(1) "N=$(N) ROOT=$(ROOT) $(DUNE_EXEC) ./benchmarks/local_roots.exe") \
-	  ) && echo "---")
+	             $(if $(TEST_MORE),30,) 100 $(if $(TEST_MORE),300,) 1000, \
+	  $(foreach ROOT, $(LOCAL_IMPLS) \
+	                  $(if $(TEST_MORE), \
+	                    ocaml \
+	                    ocaml_ref \
+	                    naive \
+	                    generational \
+	                    bitmap_boxroot \
+	                    dll_boxroot) \
+	                  $(if $(TEST_MORE_MORE), \
+	                    rem_boxroot \
+	                    global), \
+	    && ($(1) "N=$(N) ROOT=$(ROOT) $(DUNE_EXEC) ./benchmarks/local_roots.exe")) \
+	  && echo "---")
 
 .PHONY: run-perm_count hyper-perm_count
 run-perm_count: all
