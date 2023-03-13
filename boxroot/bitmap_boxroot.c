@@ -34,6 +34,11 @@
 
 /* }}} */
 
+/* {{{ Config */
+
+#define GENERATIONAL 1
+
+/* }}} */
 
 /* {{{ Data types */
 
@@ -328,7 +333,7 @@ static inline int is_young_block(value v)
 bitmap_boxroot bitmap_boxroot_create(value init)
 {
   if (DEBUG) ++stats.total_create;
-  bool young = true/*is_young_block(init)*/;
+  bool young = GENERATIONAL /* && is_young_block(init) */;
   lock_rings();
   chunk *chunk = get_available_chunk(young);
   value *root;
@@ -422,7 +427,7 @@ static void scan_roots(scanning_action action, void *data)
   int work = 0;
   if (DEBUG) validate_all_rings();
   lock_rings();
-  if (bxr_in_minor_collection()) {
+  if (GENERATIONAL && bxr_in_minor_collection()) {
     work += scan_ring_young(action, data);
     if (rings.young != NULL) {
       chunk *chunk = rings.young;
