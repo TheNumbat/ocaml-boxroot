@@ -193,7 +193,6 @@ static struct {
   atomic_llong total_scanning_work_major;
   atomic_llong total_minor_time;
   atomic_llong total_major_time;
-  atomic_llong total_gc_pool_time;
   atomic_llong peak_minor_time;
   atomic_llong peak_major_time;
   atomic_llong total_alloced_pools;
@@ -828,7 +827,6 @@ static long long time_counter(void);
 static void gc_pool_rings(int dom_id)
 {
   incr(&stats.total_gc_pool_rings);
-  long long start = time_counter();
   pool_rings *local = pools[dom_id];
   // Heuristic: if a young pool has just been allocated, it is better
   // if it is the first one to be considered the next time a young
@@ -840,8 +838,6 @@ static void gc_pool_rings(int dom_id)
   }
   gc_ring(&local->young, dom_id);
   gc_ring(&local->old, dom_id);
-  long long duration = time_counter() - start;
-  stats.total_gc_pool_time += duration;
 }
 
 // returns the amount of work done
@@ -1059,19 +1055,15 @@ void boxroot_print_stats()
     average(stats.total_minor_time, stats.minor_collections) / 1000;
   double time_per_major =
     average(stats.total_major_time, stats.major_collections) / 1000;
-  double time_per_gc_pool_rings =
-    average(stats.total_gc_pool_time, stats.total_gc_pool_rings) / 1000;
 
   printf("average time per minor: %'.3fµs\n"
          "average time per major: %'.3fµs\n"
          "peak time per minor: %'.3fµs\n"
-         "peak time per major: %'.3fµs\n"
-         "average time per gc_pool_rings: %'.3fµs\n",
+         "peak time per major: %'.3fµs\n",
          time_per_minor,
          time_per_major,
          ((double)stats.peak_minor_time) / 1000,
-         ((double)stats.peak_major_time) / 1000,
-         time_per_gc_pool_rings);
+         ((double)stats.peak_major_time) / 1000);
 #endif
 
   double ring_operations_per_pool =
