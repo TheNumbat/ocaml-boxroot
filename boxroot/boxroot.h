@@ -128,7 +128,7 @@ boxroot bxr_create_slow(value v);
    Purely for experimental purposes. Otherwise should always be true. */
 #define BXR_MULTITHREAD true
 /* Make every deallocation a remote deallocation. For testing purposes
-   only. Otherwise should always be 0. */
+   only. Otherwise should always be false. */
 #define BXR_FORCE_REMOTE false
 
 inline boxroot boxroot_create(value init)

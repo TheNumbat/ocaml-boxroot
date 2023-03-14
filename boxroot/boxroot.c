@@ -133,6 +133,7 @@ typedef struct {
 
 /* Only accessed from one's own domain. Ownership requires the domain
    lock. */
+// TODO: Avoid false sharing?
 static pool_rings *pools[Num_domains] = { NULL };
 
 /* Holds the live pools of terminated domains until the next GC.
@@ -150,6 +151,7 @@ _Thread_local ptrdiff_t bxr_cached_dom_id = -1;
 
 /* Only accessed from one's own domain. Ownership requires the domain
    lock. */
+// TODO: Avoid false sharing?
 bxr_free_list *bxr_current_free_list[Num_domains + 1] =
   { &empty_fl, /* domain -1, always empty (trap for initialization) */
     &empty_fl, /* domain 0, accessed without initialization when
@@ -387,6 +389,7 @@ static void set_current_pool(int dom_id, pool *p)
 {
   DEBUGassert(pools[dom_id]->current == NULL);
   if (p != NULL) {
+    DEBUGassert(p->next == p);
     p->free_list.domain_id = dom_id;
     pools[dom_id]->current = p;
     p->free_list.class = YOUNG;
@@ -417,13 +420,13 @@ static void reclassify_pool(pool **source, int dom_id, int cl);
 static void try_demote_pool(int dom_id, pool *p)
 {
   DEBUGassert(p->free_list.class != UNTRACKED);
-  pool_rings *remote = pools[dom_id];
-  if (p == remote->current || !is_not_too_full(p)) return;
+  pool_rings *local = pools[dom_id];
+  if (p == local->current || !is_not_too_full(p)) return;
   int cl = (p->free_list.alloc_count == 0) ? UNTRACKED : p->free_list.class;
   /* If the pool is at the head of its ring, the new head must be
      recorded. */
-  pool **source = (p == remote->old) ? &remote->old :
-                  (p == remote->young) ? &remote->young : &p;
+  pool **source = (p == local->old) ? &local->old :
+                  (p == local->young) ? &local->young : &p;
   reclassify_pool(source, dom_id, cl);
 }
 
@@ -545,8 +548,8 @@ boxroot bxr_create_slow(value init)
   } else {
     /* A thread cannot belong to two different OCaml domains at separate
        times (in particular registered threads always belong to domain
-       0). */
-    DEBUGassert(bxr_cached_dom_id == dom_id);
+       0). This exception is always enabled for future-proofing. */
+    assert(bxr_cached_dom_id == dom_id);
   }
   if (local->current != NULL) {
     /* Necessarily we are here because the pool is full */
