@@ -95,7 +95,7 @@ run_par_perm_count = \
 
 run_synthetic = \
 	$(call run_bench,"synthetic", $(1), \
-	    N=8 \
+	    N=7 \
 	    SMALL_ROOTS=10_000 \
 	    YOUNG_RATIO=1 \
 	    LARGE_ROOTS=20 \
