@@ -390,10 +390,23 @@ static void set_current_pool(int dom_id, pool *p)
     p->free_list.domain_id = dom_id;
     pools[dom_id]->current = p;
     p->free_list.class = YOUNG;
+    // Prevent the current pool from triggering a slow deallocation
+    // path when empty.
+    p->free_list.alloc_count++;
     set_current_fl(dom_id, &p->free_list);
   } else {
     set_current_fl(dom_id, &empty_fl);
   }
+}
+
+static pool * take_current_pool(int dom_id)
+{
+  pool_rings *local = pools[dom_id];
+  DEBUGassert(local->current != NULL);
+  pool *p = ring_pop(&local->current);
+  // Undo the increment in set_current_pool
+  p->free_list.alloc_count--;
+  return p;
 }
 
 static void reclassify_pool(pool **source, int dom_id, int cl);
@@ -541,7 +554,8 @@ boxroot bxr_create_slow(value init)
     /* We probably cannot garbage-collect the current pool, since it
        is highly unlikely that all the cells have been freed in the
        delayed_fl at this point. */
-    reclassify_pool(&local->current, dom_id, YOUNG);
+    pool *p = take_current_pool(dom_id);
+    reclassify_pool(&p, dom_id, YOUNG);
     /* Instead, whenever we fill a pool, we do enough work to
        garbage-collect any one young pool that may have been emptied
        remotely. This is quick since there are not many young pools.
@@ -721,7 +735,14 @@ static void validate_all_pools(int dom_id)
   pool_rings *local = pools[dom_id];
   validate_ring(&local->old, dom_id, OLD);
   validate_ring(&local->young, dom_id, YOUNG);
-  validate_ring(&local->current, dom_id, YOUNG);
+  if (local->current != NULL) {
+    pool *p = take_current_pool(dom_id);
+    validate_ring(&p, dom_id, YOUNG);
+    assert(&p->free_list == bxr_current_free_list[dom_id + 1]);
+    set_current_pool(dom_id, p);
+  } else {
+    assert(&empty_fl == bxr_current_free_list[dom_id + 1]);
+  }
   validate_ring(&local->free, dom_id, UNTRACKED);
 }
 
@@ -737,7 +758,8 @@ static void orphan_pools(int dom_id)
   /* Move active pools to the orphaned pools. TODO: NUMA awareness? */
   ring_push_back(local->old, &orphan.old);
   ring_push_back(local->young, &orphan.young);
-  ring_push_back(local->current, &orphan.young);
+  pool *p = take_current_pool(dom_id);
+  ring_push_back(p, &orphan.young);
   bxr_mutex_unlock(&orphan_mutex);
   /* Free the rest */
   free_pool_ring(&local->free);
@@ -833,7 +855,8 @@ static void gc_pool_rings(int dom_id)
   // boxroot allocation takes place. (First it ends up last, so that
   // it ends up to the front after pool promotion.)
   if (local->current != NULL) {
-    reclassify_pool(&local->current, dom_id, YOUNG);
+    pool *p = take_current_pool(dom_id);
+    reclassify_pool(&p, dom_id, YOUNG);
     set_current_pool(dom_id, NULL);
   }
   gc_ring(&local->young, dom_id);
