@@ -26,33 +26,48 @@ all:
 clean:
 	dune clean
 
-EMPTY=
+ifeq ($(TEST_MORE),2)
+TEST_MORE_MORE=1
+endif
 
 ifdef IMPL
-REF_IMPLS=$(IMPL)
-LOCAL_IMPLS=$(IMPL)
+
+REF_IMPLS=$(IMPL) gc
+LOCAL_IMPLS=$(IMPL) local
+
 else
+
+EMPTY=
+
 REF_IMPLS=\
   boxroot \
   gc \
-  $(EMPTY)
-LOCAL_IMPLS=boxroot local
-endif
-
-REF_IMPLS_MORE=\
-  ocaml \
-  generational \
-  bitmap_boxroot \
-  dll_boxroot \
-  $(EMPTY)
-REF_IMPLS_MORE_MORE=\
-  ocaml_ref \
-  rem_boxroot \
-  global \
+  $(if $(TEST_MORE), \
+    ocaml \
+    generational \
+    bitmap_boxroot \
+    dll_boxroot) \
+  $(if $(TEST_MORE_MORE), \
+    ocaml_ref \
+    rem_boxroot \
+    global) \
   $(EMPTY)
 
-ifeq ($(TEST_MORE),2)
-TEST_MORE_MORE=1
+LOCAL_IMPLS=\
+	boxroot \
+	local  \
+	$(if $(TEST_MORE), \
+	  ocaml \
+	  ocaml_ref \
+	  naive \
+	  generational \
+	  bitmap_boxroot \
+	  dll_boxroot) \
+	$(if $(TEST_MORE_MORE), \
+	  rem_boxroot \
+	  global) \
+  $(EMPTY)
+
 endif
 
 DUNE_EXEC = dune exec --display=quiet
@@ -65,9 +80,7 @@ run_bench = \
   $(check_tsc) \
   echo "Benchmark: $(1)" \
   && echo "---" \
-  $(foreach REF, $(REF_IMPLS) \
-                 $(if $(TEST_MORE),$(REF_IMPLS_MORE),) \
-                 $(if $(TEST_MORE_MORE),$(REF_IMPLS_MORE_MORE),), \
+  $(foreach REF, $(REF_IMPLS), \
     && ($(2) "REF=$(REF) $(3)") \
   ) \
 	&& echo "---"
@@ -102,19 +115,9 @@ run_local_roots = \
 	$(check_tsc) \
 	echo "Benchmark: local_roots" \
 	&& echo "---" \
-	$(foreach N, 1 2 $(if $(TEST_MORE),3 4,) 5 $(if $(TEST_MORE),8,) 10 \
+	$(foreach N, 1 2 $(if $(TEST_MORE), 3,) 5 $(if $(TEST_MORE), 7,) 10 \
 	             $(if $(TEST_MORE),30,) 100 $(if $(TEST_MORE),300,) 1000, \
-	  $(foreach ROOT, $(LOCAL_IMPLS) \
-	                  $(if $(TEST_MORE), \
-	                    ocaml \
-	                    ocaml_ref \
-	                    naive \
-	                    generational \
-	                    bitmap_boxroot \
-	                    dll_boxroot) \
-	                  $(if $(TEST_MORE_MORE), \
-	                    rem_boxroot \
-	                    global), \
+	  $(foreach ROOT, $(LOCAL_IMPLS), \
 	    && ($(1) "N=$(N) ROOT=$(ROOT) $(DUNE_EXEC) ./benchmarks/local_roots.exe")) \
 	  && echo "---")
 
@@ -165,6 +168,15 @@ run-more:
 	$(MAKE) run TEST_MORE=1
 hyper-more:
 	$(MAKE) hyper TEST_MORE=1
+
+.PHONY: bench-full
+bench-full:
+	echo "===Boost:" `cat /sys/devices/system/cpu/cpufreq/boost` "===" \
+	&& make hyper TEST_MORE=1 \
+	&& echo "===bitmap (hotspot)===" \
+	&& make hyper IMPL=bitmap_boxroot ENABLE_BOXROOT_GENERATIONAL=0 ENABLE_BOXROOT_MUTEX=1 TEST_MORE=1 \
+	&& echo "===bitmap (thread-unsafe)===" \
+	&& make hyper IMPL=bitmap_boxroot ENABLE_BOXROOT_GENERATIONAL=1 ENABLE_BOXROOT_MUTEX=0 TEST_MORE=1
 
 .PHONY: test-boxroot
 test-boxroot: all
