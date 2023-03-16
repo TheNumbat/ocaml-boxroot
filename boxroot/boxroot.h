@@ -125,7 +125,10 @@ void bxr_create_debug(value v);
 boxroot bxr_create_slow(value v);
 
 /* Test the overheads of multithreading (systhreads and multicore).
-   Purely for experimental purposes. Otherwise should always be true. */
+   This makes boxroot domain-local (no movement between domains
+   allowed), and single-threaded (no deletion without the domain lock
+   allowed, no check for domain lock ownerhsip). Purely for
+   experimental purposes. Otherwise should always be true. */
 #define BXR_MULTITHREAD true
 /* Make every deallocation a remote deallocation. For testing purposes
    only. Otherwise should always be false. */
@@ -137,11 +140,10 @@ inline boxroot boxroot_create(value init)
   bxr_create_debug(init);
 #endif
   /* Find current free_list. Synchronized by domain lock. */
-  ptrdiff_t dom_id =
-    (OCAML_MULTICORE && BXR_MULTITHREAD) ? bxr_cached_dom_id : 0;
+  ptrdiff_t dom_id = OCAML_MULTICORE ? bxr_cached_dom_id : 0;
   bxr_free_list *fl = bxr_current_free_list[dom_id + 1];
   bxr_slot_ref new_root = fl->next;
-  if (BXR_UNLIKELY(!bxr_domain_lock_held())
+  if (BXR_UNLIKELY(BXR_MULTITHREAD && !bxr_domain_lock_held())
       || BXR_UNLIKELY(new_root == (bxr_slot_ref)fl))
     return bxr_create_slow(init);
   fl->next = new_root->as_slot_ref;
