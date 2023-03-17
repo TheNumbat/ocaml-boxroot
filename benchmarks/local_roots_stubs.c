@@ -38,6 +38,7 @@ value local_fixpoint(value f, value x)
 
 int compare_val_naive(value x, value y)
 {
+  /* Simulate a function that does some actual work. */
   boxroot xr = boxroot_create(x);
   boxroot yr = boxroot_create(y);
   int res = Double_val(boxroot_get(xr)) == Double_val(boxroot_get(yr));
