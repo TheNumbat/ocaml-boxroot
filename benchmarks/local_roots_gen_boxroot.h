@@ -3,19 +3,10 @@
 #define MY2(g,f) CONCAT(g,f)
 #define MY(f) MY2(MY_PREFIX, f)
 
-typedef value const * value_ref;
-
-static int MY(compare_refs)(value_ref x, value_ref y)
-{
-  /* Simulate a function that does some actual work---nothing to root
-     here. */
-  return Double_val(*x) == Double_val(*y);
-}
-
 MY(root) MY(root_fixpoint_rooted)(value_ref f, MY(root) x)
 {
   MY(root) y = MY(root_create)(caml_callback(*f, MY(root_get)(x)));
-  if (MY(compare_refs)(MY(root_get_ref)(x), MY(root_get_ref)(y))) {
+  if (compare_refs(MY(root_get_ref)(x), MY(root_get_ref)(y))) {
     MY(root_delete)(x);
     return y;
   } else {

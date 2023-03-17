@@ -59,6 +59,7 @@ LOCAL_IMPLS=\
 	$(if $(TEST_MORE), \
 	  ocaml \
 	  ocaml_ref \
+	  local_ref \
 	  naive \
 	  generational \
 	  bitmap_boxroot \
