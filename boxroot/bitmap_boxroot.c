@@ -186,7 +186,7 @@ inline static void ring_link(ring p, ring q)
 {
   p->next = q;
   q->prev = p;
-  if (DEBUG) incr(&stats.ring_operations);
+  if (BOXROOT_DEBUG) incr(&stats.ring_operations);
 }
 
 // insert the ring [source] at the back of [*target].
@@ -352,13 +352,13 @@ static bool remove_from_chunk(value *slot, chunk *chunk)
 
 static inline int is_young_block(value v)
 {
-  if (DEBUG) ++stats.is_young;
+  if (BOXROOT_DEBUG) ++stats.is_young;
   return Is_block(v) && Is_young(v);
 }
 
 bitmap_boxroot bitmap_boxroot_create(value init)
 {
-  if (DEBUG) ++stats.total_create;
+  if (BOXROOT_DEBUG) ++stats.total_create;
   bool young = ENABLE_BOXROOT_GENERATIONAL /* && is_young_block(init) */;
   lock_rings();
   chunk *chunk = get_available_chunk(young);
@@ -451,7 +451,7 @@ static int scan_ring_young(scanning_action action, void *data)
 static void scan_roots(scanning_action action, void *data)
 {
   int work = 0;
-  if (DEBUG) validate_all_rings();
+  if (BOXROOT_DEBUG) validate_all_rings();
   lock_rings();
   if (ENABLE_BOXROOT_GENERATIONAL && bxr_in_minor_collection()) {
     work += scan_ring_young(action, data);
@@ -471,7 +471,7 @@ static void scan_roots(scanning_action action, void *data)
     stats.total_scanning_work_major += work;
   }
   unlock_rings();
-  if (DEBUG) validate_all_rings();
+  if (BOXROOT_DEBUG) validate_all_rings();
 }
 
 /* }}} */
@@ -523,7 +523,7 @@ void bitmap_boxroot_print_stats()
          stats.total_freed_pools,
          kib_of_pools(stats.total_freed_pools, 2));
 
-#if DEBUG != 0
+#if BOXROOT_DEBUG
   printf("total created: %'d\n"
          "total deleted: %'d\n"
          "total modified: %'d\n",
@@ -604,7 +604,7 @@ int bitmap_boxroot_setup()
   bxr_setup_hooks(&scanning_callback, NULL);
   // we are done
   setup = 1;
-  if (DEBUG) validate_all_rings();
+  if (BOXROOT_DEBUG) validate_all_rings();
   return 1;
 }
 

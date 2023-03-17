@@ -163,7 +163,7 @@ static struct stats stats;
 // hot path
 static inline pool * get_pool_header(slot *v)
 {
-  if (DEBUG) ++stats.get_pool_header;
+  if (BOXROOT_DEBUG) ++stats.get_pool_header;
   return (pool *)((uintptr_t)v & ~((uintptr_t)POOL_SIZE - 1));
 }
 
@@ -171,28 +171,28 @@ static inline pool * get_pool_header(slot *v)
 // hot path
 static inline int is_free_slot(raw_slot v, pool *p)
 {
-  if (DEBUG) ++stats.is_free_slot;
+  if (BOXROOT_DEBUG) ++stats.is_free_slot;
   return ((uintptr_t)p | 1) == (v & (~((uintptr_t)POOL_SIZE - 2)));
 }
 
 // hot path
 static inline int is_empty_free_list(slot *v, pool *p)
 {
-  if (DEBUG) ++stats.is_empty_free_list;
+  if (BOXROOT_DEBUG) ++stats.is_empty_free_list;
   return ((uintptr_t) v == (uintptr_t)p);
 }
 
 // hot path
 static inline int is_young_block(value v)
 {
-  if (DEBUG) ++stats.is_young;
+  if (BOXROOT_DEBUG) ++stats.is_young;
   return Is_block(v) && Is_young(v);
 }
 
 // hot path
 static inline void remember(caml_domain_state *dom_st, slot *s)
 {
-  if (DEBUG) ++stats.remember;
+  if (BOXROOT_DEBUG) ++stats.remember;
   Add_to_ref_table(dom_st, &(s->full));
 }
 
@@ -327,17 +327,17 @@ static pool * get_empty_pool(void)
    one failed. */
 static pool * find_available_pool(void)
 {
-  if (DEBUG) stats.find_available_pool++;
+  if (BOXROOT_DEBUG) stats.find_available_pool++;
   while (pools != NULL && is_full_pool(pools)) {
-    if (DEBUG) stats.find_available_pool_work++;
+    if (BOXROOT_DEBUG) stats.find_available_pool_work++;
     ring_push_back(ring_pop(&pools), &full_pools);
   }
   if (pools == NULL) {
-    if (DEBUG) stats.find_available_pool_work++;
+    if (BOXROOT_DEBUG) stats.find_available_pool_work++;
     pools = get_empty_pool();
     if (pools == NULL) return NULL;
   }
-  if (DEBUG) stats.find_available_pool_work++;
+  if (BOXROOT_DEBUG) stats.find_available_pool_work++;
   assert(pools != NULL && !is_full_pool(pools));
   return pools;
 }
@@ -427,7 +427,7 @@ static inline void dealloc_slot(slot *v) {
   if (UNLIKELY(p->hd.alloc_count == POOL_ROOTS_CAPACITY * 3 / 4)) {
     // the pool at this point is either in 'pools' or 'full_pools';
     // ensure that it goes back to 'pools' in any case.
-    if (DEBUG) stats.find_available_pool_work++;
+    if (BOXROOT_DEBUG) stats.find_available_pool_work++;
     pool *removed = pool_remove(p);
     ring_push_back(removed, &pools);
   }
@@ -440,7 +440,7 @@ static inline void dealloc_slot(slot *v) {
 // hot path
 rem_boxroot rem_boxroot_create(value init)
 {
-  if (DEBUG) ++stats.total_create;
+  if (BOXROOT_DEBUG) ++stats.total_create;
   CRITICAL_SECTION_BEGIN();
   slot *cell = alloc_slot(is_young_block(init));
   CRITICAL_SECTION_END();
@@ -455,7 +455,7 @@ extern value const * rem_boxroot_get_ref(rem_boxroot root);
 // hot path
 void rem_boxroot_delete(rem_boxroot root)
 {
-  if (DEBUG) ++stats.total_delete;
+  if (BOXROOT_DEBUG) ++stats.total_delete;
   slot *cell = (slot *)root;
   DEBUGassert(cell != NULL);
   CRITICAL_SECTION_BEGIN();
@@ -466,7 +466,7 @@ void rem_boxroot_delete(rem_boxroot root)
 // hot path
 void rem_boxroot_modify(rem_boxroot *root, value new_value)
 {
-  if (DEBUG) ++stats.total_modify;
+  if (BOXROOT_DEBUG) ++stats.total_modify;
   slot *cell = (slot *)*root;
   DEBUGassert(cell != NULL);
   // no need for a critical section here, we do not touch the pool structure
@@ -606,11 +606,11 @@ static void free_empty_pools(void) {
 
 static void scan_roots(scanning_action action, void *data)
 {
-  if (DEBUG) validate();
+  if (BOXROOT_DEBUG) validate();
   scan_pool_ring(action, data, pools);
   scan_pool_ring(action, data, full_pools);
   free_empty_pools();
-  if (DEBUG) validate();
+  if (BOXROOT_DEBUG) validate();
 }
 
 /* }}} */
@@ -666,10 +666,10 @@ void rem_boxroot_print_stats()
       stats.major_collections ? stats.total_major_time / stats.major_collections : 0;
 
   printf("POOL_LOG_SIZE: %d (%'d KiB, %'d roots/pool)\n"
-         "DEBUG: %d\n"
+         "BOXROOT_DEBUG: %d\n"
          "OCAML_MULTICORE: %d\n",
          (int)POOL_LOG_SIZE, kib_of_pools((int)1, 1), (int)POOL_ROOTS_CAPACITY,
-         (int)DEBUG, (int)OCAML_MULTICORE);
+         (int)BOXROOT_DEBUG, (int)OCAML_MULTICORE);
 
   printf("total allocated pool: %'d (%'d MiB)\n"
          "peak allocated pools: %'d (%'d MiB)\n"
@@ -701,7 +701,7 @@ void rem_boxroot_print_stats()
          stats.ring_operations,
          ring_operations_per_pool);
 
-#if DEBUG != 0
+#if BOXROOT_DEBUG
   printf("total created: %'d\n"
          "total deleted: %'d\n"
          "total modified: %'d\n",

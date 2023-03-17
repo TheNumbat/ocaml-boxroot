@@ -136,7 +136,7 @@ boxroot bxr_create_slow(value v);
 
 inline boxroot boxroot_create(value init)
 {
-#if defined(BOXROOT_DEBUG) && (BOXROOT_DEBUG == 1)
+#if defined(BOXROOT_DEBUG) && BOXROOT_DEBUG
   bxr_create_debug(init);
 #endif
   /* Find current free_list. Synchronized by domain lock. */
@@ -183,7 +183,7 @@ void bxr_delete_slow(bxr_free_list *fl, boxroot root, bool remote);
 
 inline void boxroot_delete(boxroot root)
 {
-#if defined(BOXROOT_DEBUG) && (BOXROOT_DEBUG == 1)
+#if defined(BOXROOT_DEBUG) && BOXROOT_DEBUG
   bxr_delete_debug(root);
 #endif
   bxr_free_list *fl = Bxr_get_pool_header(root);
@@ -203,7 +203,7 @@ bool bxr_modify_slow(boxroot *rootp, value new_value);
 
 inline bool boxroot_modify(boxroot *rootp, value new_value)
 {
-#if defined(BOXROOT_DEBUG) && (BOXROOT_DEBUG == 1)
+#if defined(BOXROOT_DEBUG) && BOXROOT_DEBUG
   bxr_modify_debug(rootp);
 #endif
   if (BXR_UNLIKELY(!bxr_domain_lock_held())) return 0;
