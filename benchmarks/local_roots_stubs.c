@@ -55,7 +55,7 @@ value naive_fixpoint(value f, value x)
   if (compare_val_naive(boxroot_get(xr),boxroot_get(yr))) {
     res = boxroot_get(yr);
   } else {
-    res = local_fixpoint(boxroot_get(fr), boxroot_get(yr));
+    res = naive_fixpoint(boxroot_get(fr), boxroot_get(yr));
   }
   boxroot_delete(yr);
   boxroot_delete(xr);
