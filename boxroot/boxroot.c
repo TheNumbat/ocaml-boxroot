@@ -384,24 +384,24 @@ static inline bool is_not_too_full(pool *p)
   return p->free_list.alloc_count <= (int)(BXR_DEALLOC_THRESHOLD / sizeof(bxr_slot));
 }
 
+/* Change the current pool from NULL to p */
 /* ownership required: domain, pool */
 static void set_current_pool(int dom_id, pool *p)
 {
-  DEBUGassert(pools[dom_id]->current == NULL);
-  if (p != NULL) {
-    DEBUGassert(p->next == p);
-    p->free_list.domain_id = dom_id;
-    pools[dom_id]->current = p;
-    p->free_list.class = YOUNG;
-    // Prevent the current pool from triggering a slow deallocation
-    // path when empty.
-    p->free_list.alloc_count++;
-    set_current_fl(dom_id, &p->free_list);
-  } else {
-    set_current_fl(dom_id, &empty_fl);
-  }
+  pool_rings *local = pools[dom_id];
+  DEBUGassert(local->current == NULL);
+  if (p == NULL) return;
+  DEBUGassert(p->next == p);
+  p->free_list.domain_id = dom_id;
+  local->current = p;
+  p->free_list.class = YOUNG;
+  // Prevent the current pool from triggering a slow deallocation
+  // path when empty.
+  p->free_list.alloc_count++;
+  set_current_fl(dom_id, &p->free_list);
 }
 
+/* Change the current pool from p to NULL and return p. */
 static pool * take_current_pool(int dom_id)
 {
   pool_rings *local = pools[dom_id];
@@ -409,6 +409,7 @@ static pool * take_current_pool(int dom_id)
   pool *p = ring_pop(&local->current);
   // Undo the increment in set_current_pool
   p->free_list.alloc_count--;
+  set_current_fl(dom_id, &empty_fl);
   return p;
 }
 
@@ -444,7 +445,7 @@ static inline pool * pop_available(pool **target)
 /* Find an available pool and set it as current. Return NULL if none
    was found and the allocation of a new one failed. */
 /* ownership required: domain */
-static pool * find_available_pool(int dom_id)
+static void find_and_set_available_pool(int dom_id)
 {
   pool_rings *local = pools[dom_id];
   pool *p = pop_available(&local->young);
@@ -453,8 +454,8 @@ static pool * find_available_pool(int dom_id)
   if (p == NULL) p = pop_available(&local->free);
   if (p == NULL) p = get_empty_pool();
   DEBUGassert(local->current == NULL);
+  DEBUGassert(!is_full_pool(p));
   set_current_pool(dom_id, p);
-  return p;
 }
 
 static void validate_all_pools(int dom_id);
@@ -574,9 +575,8 @@ boxroot bxr_create_slow(value init)
        remote deallocations. */
     try_gc_and_reclassify_one_pool_no_stw(&local->young, dom_id);
   }
-  pool *p = find_available_pool(dom_id);
-  if (p == NULL) return NULL; /* ENOMEM */
-  DEBUGassert(!is_full_pool(p));
+  find_and_set_available_pool(dom_id);
+  if (local->current == NULL) return NULL; /* ENOMEM */
   /* Try again */
   return boxroot_create(init);
 }
@@ -860,7 +860,6 @@ static void gc_pool_rings(int dom_id)
   if (local->current != NULL) {
     pool *p = take_current_pool(dom_id);
     reclassify_pool(&p, dom_id, YOUNG);
-    set_current_pool(dom_id, NULL);
   }
   gc_ring(&local->young, dom_id);
   gc_ring(&local->old, dom_id);
