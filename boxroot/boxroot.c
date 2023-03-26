@@ -120,8 +120,10 @@ typedef struct {
      the minor heap. Scanned at the start of minor and major
      collection. */
   pool *young;
-  /* Current pool. Ring of size 1. Scanned at the start of minor and
-     major collection. */
+  /* Current pool. Scanned at the start of minor and major collection.
+     This ring is special: it has 0 or 1 pools, and its pool when it
+     exists has an incorrect allocation count. See
+     {set,take}_current_pool. */
   pool *current;
   /* Pools containing no root: not scanned.
      We could free these pools immediately, but this could lead to
@@ -553,12 +555,12 @@ boxroot bxr_create_slow(value init)
     assert(bxr_cached_dom_id == dom_id);
   }
   if (local->current != NULL) {
+    pool *p = take_current_pool(dom_id);
     /* Necessarily we are here because the pool is full */
-    DEBUGassert(is_full_pool(local->current));
+    DEBUGassert(is_full_pool(p));
     /* We probably cannot garbage-collect the current pool, since it
        is highly unlikely that all the cells have been freed in the
        delayed_fl at this point. */
-    pool *p = take_current_pool(dom_id);
     reclassify_pool(&p, dom_id, YOUNG);
     /* Instead, whenever we fill a pool, we do enough work to
        garbage-collect any one young pool that may have been emptied
