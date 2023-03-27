@@ -120,8 +120,10 @@ typedef struct {
      the minor heap. Scanned at the start of minor and major
      collection. */
   pool *young;
-  /* Current pool. Ring of size 1. Scanned at the start of minor and
-     major collection. */
+  /* Current pool. Scanned at the start of minor and major collection.
+     This ring is special: it has 0 or 1 pools, and its pool when it
+     exists has an incorrect allocation count. See
+     {set,take}_current_pool. */
   pool *current;
   /* Pools containing no root: not scanned.
      We could free these pools immediately, but this could lead to
@@ -133,6 +135,7 @@ typedef struct {
 
 /* Only accessed from one's own domain. Ownership requires the domain
    lock. */
+// TODO: Avoid false sharing?
 static pool_rings *pools[Num_domains] = { NULL };
 
 /* Holds the live pools of terminated domains until the next GC.
@@ -150,6 +153,7 @@ _Thread_local ptrdiff_t bxr_cached_dom_id = -1;
 
 /* Only accessed from one's own domain. Ownership requires the domain
    lock. */
+// TODO: Avoid false sharing?
 bxr_free_list *bxr_current_free_list[Num_domains + 1] =
   { &empty_fl, /* domain -1, always empty (trap for initialization) */
     &empty_fl, /* domain 0, accessed without initialization when
@@ -382,18 +386,33 @@ static inline bool is_not_too_full(pool *p)
   return p->free_list.alloc_count <= (int)(BXR_DEALLOC_THRESHOLD / sizeof(bxr_slot));
 }
 
+/* Change the current pool from NULL to p */
 /* ownership required: domain, pool */
 static void set_current_pool(int dom_id, pool *p)
 {
-  DEBUGassert(pools[dom_id]->current == NULL);
-  if (p != NULL) {
-    p->free_list.domain_id = dom_id;
-    pools[dom_id]->current = p;
-    p->free_list.class = YOUNG;
-    set_current_fl(dom_id, &p->free_list);
-  } else {
-    set_current_fl(dom_id, &empty_fl);
-  }
+  pool_rings *local = pools[dom_id];
+  DEBUGassert(local->current == NULL);
+  if (p == NULL) return;
+  DEBUGassert(p->next == p);
+  p->free_list.domain_id = dom_id;
+  local->current = p;
+  p->free_list.class = YOUNG;
+  // Prevent the current pool from triggering a slow deallocation
+  // path when empty.
+  p->free_list.alloc_count++;
+  set_current_fl(dom_id, &p->free_list);
+}
+
+/* Change the current pool from p to NULL and return p. */
+static pool * take_current_pool(int dom_id)
+{
+  pool_rings *local = pools[dom_id];
+  DEBUGassert(local->current != NULL);
+  pool *p = ring_pop(&local->current);
+  // Undo the increment in set_current_pool
+  p->free_list.alloc_count--;
+  set_current_fl(dom_id, &empty_fl);
+  return p;
 }
 
 static void reclassify_pool(pool **source, int dom_id, int cl);
@@ -404,13 +423,13 @@ static void reclassify_pool(pool **source, int dom_id, int cl);
 static void try_demote_pool(int dom_id, pool *p)
 {
   DEBUGassert(p->free_list.class != UNTRACKED);
-  pool_rings *remote = pools[dom_id];
-  if (p == remote->current || !is_not_too_full(p)) return;
+  pool_rings *local = pools[dom_id];
+  if (p == local->current || !is_not_too_full(p)) return;
   int cl = (p->free_list.alloc_count == 0) ? UNTRACKED : p->free_list.class;
   /* If the pool is at the head of its ring, the new head must be
      recorded. */
-  pool **source = (p == remote->old) ? &remote->old :
-                  (p == remote->young) ? &remote->young : &p;
+  pool **source = (p == local->old) ? &local->old :
+                  (p == local->young) ? &local->young : &p;
   reclassify_pool(source, dom_id, cl);
 }
 
@@ -428,7 +447,7 @@ static inline pool * pop_available(pool **target)
 /* Find an available pool and set it as current. Return NULL if none
    was found and the allocation of a new one failed. */
 /* ownership required: domain */
-static pool * find_available_pool(int dom_id)
+static void find_and_set_available_pool(int dom_id)
 {
   pool_rings *local = pools[dom_id];
   pool *p = pop_available(&local->young);
@@ -437,8 +456,8 @@ static pool * find_available_pool(int dom_id)
   if (p == NULL) p = pop_available(&local->free);
   if (p == NULL) p = get_empty_pool();
   DEBUGassert(local->current == NULL);
+  DEBUGassert(!is_full_pool(p));
   set_current_pool(dom_id, p);
-  return p;
 }
 
 static void validate_all_pools(int dom_id);
@@ -532,16 +551,17 @@ boxroot bxr_create_slow(value init)
   } else {
     /* A thread cannot belong to two different OCaml domains at separate
        times (in particular registered threads always belong to domain
-       0). */
-    DEBUGassert(bxr_cached_dom_id == dom_id);
+       0). This exception is always enabled for future-proofing. */
+    assert(bxr_cached_dom_id == dom_id);
   }
   if (local->current != NULL) {
+    pool *p = take_current_pool(dom_id);
     /* Necessarily we are here because the pool is full */
-    DEBUGassert(is_full_pool(local->current));
+    DEBUGassert(is_full_pool(p));
     /* We probably cannot garbage-collect the current pool, since it
        is highly unlikely that all the cells have been freed in the
        delayed_fl at this point. */
-    reclassify_pool(&local->current, dom_id, YOUNG);
+    reclassify_pool(&p, dom_id, YOUNG);
     /* Instead, whenever we fill a pool, we do enough work to
        garbage-collect any one young pool that may have been emptied
        remotely. This is quick since there are not many young pools.
@@ -557,9 +577,8 @@ boxroot bxr_create_slow(value init)
        remote deallocations. */
     try_gc_and_reclassify_one_pool_no_stw(&local->young, dom_id);
   }
-  pool *p = find_available_pool(dom_id);
-  if (p == NULL) return NULL; /* ENOMEM */
-  DEBUGassert(!is_full_pool(p));
+  find_and_set_available_pool(dom_id);
+  if (local->current == NULL) return NULL; /* ENOMEM */
   /* Try again */
   return boxroot_create(init);
 }
@@ -721,7 +740,14 @@ static void validate_all_pools(int dom_id)
   pool_rings *local = pools[dom_id];
   validate_ring(&local->old, dom_id, OLD);
   validate_ring(&local->young, dom_id, YOUNG);
-  validate_ring(&local->current, dom_id, YOUNG);
+  if (local->current != NULL) {
+    pool *p = take_current_pool(dom_id);
+    validate_ring(&p, dom_id, YOUNG);
+    assert(&p->free_list == bxr_current_free_list[dom_id + 1]);
+    set_current_pool(dom_id, p);
+  } else {
+    assert(&empty_fl == bxr_current_free_list[dom_id + 1]);
+  }
   validate_ring(&local->free, dom_id, UNTRACKED);
 }
 
@@ -737,7 +763,8 @@ static void orphan_pools(int dom_id)
   /* Move active pools to the orphaned pools. TODO: NUMA awareness? */
   ring_push_back(local->old, &orphan.old);
   ring_push_back(local->young, &orphan.young);
-  ring_push_back(local->current, &orphan.young);
+  pool *p = take_current_pool(dom_id);
+  ring_push_back(p, &orphan.young);
   bxr_mutex_unlock(&orphan_mutex);
   /* Free the rest */
   free_pool_ring(&local->free);
@@ -833,8 +860,8 @@ static void gc_pool_rings(int dom_id)
   // boxroot allocation takes place. (First it ends up last, so that
   // it ends up to the front after pool promotion.)
   if (local->current != NULL) {
-    reclassify_pool(&local->current, dom_id, YOUNG);
-    set_current_pool(dom_id, NULL);
+    pool *p = take_current_pool(dom_id);
+    reclassify_pool(&p, dom_id, YOUNG);
   }
   gc_ring(&local->young, dom_id);
   gc_ring(&local->old, dom_id);
