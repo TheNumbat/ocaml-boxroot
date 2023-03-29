@@ -26,7 +26,7 @@ inline value const * bitmap_boxroot_get_ref(bitmap_boxroot r) {
 
 /* `bitmap_boxroot_delete(r)` deallocates the boxroot `r`. The value is no
    longer considered as a root by the OCaml GC. The argument must be
-   non-null. Domain lock must be held. */
+   non-null. */
 void bitmap_boxroot_delete(bitmap_boxroot);
 
 /* `bitmap_boxroot_modify(&r,v)` changes the value kept alive by the boxroot

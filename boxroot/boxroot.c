@@ -213,6 +213,16 @@ static struct {
   atomic_llong is_pool_member; // number of times is_pool_member was called
 } stats;
 
+// Can be left on, should have no impact on performance unless DEBUG == 1
+#define STATS 1
+#if STATS
+#define STATS_INCR(x) (incr(&stats.x))
+#define STATS_DECR(x) (decr(&stats.x))
+#else
+#define STATS_INCR(x) ((void)0)
+#define STATS_DECR(x) ((void)0)
+#endif
+
 /* }}} */
 
 /* {{{ Tests in the hot path */
@@ -221,7 +231,7 @@ static struct {
 /* ownership required: none */
 static inline pool * get_pool_header(bxr_slot_ref s)
 {
-  if (DEBUG) incr(&stats.get_pool_header);
+  if (DEBUG) STATS_INCR(get_pool_header);
   return (pool *)Bxr_get_pool_header(s);
 }
 
@@ -231,7 +241,7 @@ static inline pool * get_pool_header(bxr_slot_ref s)
 /* ownership required: none */
 static inline bool is_pool_member(bxr_slot v, pool *p)
 {
-  if (DEBUG) incr(&stats.is_pool_member);
+  if (DEBUG) STATS_INCR(is_pool_member);
   return (uintptr_t)p == ((uintptr_t)v.as_slot_ref & ~((uintptr_t)BXR_POOL_SIZE - 2));
 }
 
@@ -250,7 +260,7 @@ static inline void ring_link(pool *p, pool *q)
 {
   p->next = q;
   q->prev = p;
-  incr(&stats.ring_operations);
+  if (DEBUG) STATS_INCR(ring_operations);
 }
 
 /* insert the ring [source] at the back of [*target]. */
@@ -305,12 +315,14 @@ static inline bool is_full_pool(pool *p)
 /* ownership required: none */
 static pool * get_empty_pool()
 {
-  long long live_pools = 1 + incr(&stats.live_pools);
-  /* racy, but whatever */
-  if (live_pools > stats.peak_pools) stats.peak_pools = live_pools;
   pool *p = bxr_alloc_uninitialised_pool(BXR_POOL_SIZE);
   if (p == NULL) return NULL;
-  incr(&stats.total_alloced_pools);
+  if (STATS) {
+    long long live_pools = 1 + incr(&stats.live_pools);
+    /* racy, but whatever */
+    if (live_pools > stats.peak_pools) stats.peak_pools = live_pools;
+  }
+  STATS_INCR(total_alloced_pools);
   ring_link(p, p);
   p->free_list.next = p->roots;
   p->free_list.alloc_count = 0;
@@ -363,7 +375,7 @@ static void free_pool_ring(pool **ring)
   while (*ring != NULL) {
     pool *p = ring_pop(ring);
     bxr_free_pool(p);
-    incr(&stats.total_freed_pools);
+    STATS_INCR(total_freed_pools);
   }
 }
 
@@ -478,8 +490,8 @@ static void reclassify_pool(pool **source, int dom_id, int cl)
   case YOUNG: target = &local->young; break;
   case UNTRACKED:
     target = &local->free;
-    incr(&stats.total_emptied_pools);
-    decr(&stats.live_pools);
+    STATS_INCR(total_emptied_pools);
+    STATS_DECR(live_pools);
     break;
   }
   /* protected by domain lock */
@@ -525,7 +537,7 @@ static void try_gc_and_reclassify_one_pool_no_stw(pool **source, int dom_id);
 /* ownership required: current domain */
 boxroot bxr_create_slow(value init)
 {
-  incr(&stats.total_create_slow);
+  STATS_INCR(total_create_slow);
   if (Caml_state_opt == NULL) { errno = EPERM; return NULL; }
   // We might be here because boxroot is not setup.
   if (0 == setup()) return NULL;
@@ -594,8 +606,8 @@ extern inline value const * boxroot_get_ref(boxroot root);
 void bxr_create_debug(value init)
 {
   DEBUGassert(Caml_state_opt != NULL);
-  if (Is_block(init) && Is_young(init)) incr(&stats.total_create_young);
-  else incr(&stats.total_create_old);
+  if (Is_block(init) && Is_young(init)) STATS_INCR(total_create_young);
+  else STATS_INCR(total_create_old);
 }
 
 extern inline boxroot boxroot_create(value init);
@@ -608,8 +620,8 @@ void bxr_delete_debug(boxroot root)
 {
   DEBUGassert(root != NULL);
   value v = boxroot_get(root);
-  if (Is_block(v) && Is_young(v)) incr(&stats.total_delete_young);
-  else incr(&stats.total_delete_old);
+  if (Is_block(v) && Is_young(v)) STATS_INCR(total_delete_young);
+  else STATS_INCR(total_delete_old);
 }
 
 /* ownership required: root, any domain */
@@ -635,7 +647,7 @@ static void free_slot_atomic(pool *p, boxroot root)
 /* ownership required: root, current domain */
 void bxr_delete_slow(bxr_free_list *fl, boxroot root, bool remote)
 {
-  incr(&stats.total_delete_slow);
+  STATS_INCR(total_delete_slow);
   pool *p = (pool *)fl;
   if (!remote) {
     /* We own the domain lock. Deallocation already done, but we
@@ -657,7 +669,7 @@ extern inline void boxroot_delete(boxroot root);
 /* ownership required: root, current domain */
 bool bxr_modify_slow(boxroot *root_ref, value new_value)
 {
-  incr(&stats.total_modify_slow);
+  STATS_INCR(total_modify_slow);
   boxroot root = *root_ref;
   /* If the new value is not a young block, we can substitute. */
   if (!Is_block(new_value) || !Is_young(new_value)) {
@@ -676,7 +688,7 @@ bool bxr_modify_slow(boxroot *root_ref, value new_value)
 void bxr_modify_debug(boxroot *rootp)
 {
   DEBUGassert(*rootp);
-  incr(&stats.total_modify);
+  STATS_INCR(total_modify);
 }
 
 extern inline bool boxroot_modify(boxroot *rootp, value new_value);
@@ -706,7 +718,7 @@ static void validate_pool(pool *pl)
   int count = 0;
   for(int i = 0; i < POOL_CAPACITY; i++) {
     bxr_slot s = pl->roots[i];
-    --stats.is_pool_member;
+    STATS_DECR(is_pool_member);
     if (!is_pool_member(s, pl)) {
       value v = s.as_value;
       if (pl->free_list.class != YOUNG && Is_block(v)) assert(!Is_young(v));
@@ -853,7 +865,7 @@ static long long time_counter(void);
 /* ownership required: STW */
 static void gc_pool_rings(int dom_id)
 {
-  incr(&stats.total_gc_pool_rings);
+  STATS_INCR(total_gc_pool_rings);
   pool_rings *local = pools[dom_id];
   // Heuristic: if a young pool has just been allocated, it is better
   // if it is the first one to be considered the next time a young
@@ -886,7 +898,7 @@ static int scan_pool_gen(scanning_action action, void *data, pool *pl)
     }
     ++current;
   }
-  stats.young_hit_gen += young_hit;
+  if (STATS) stats.young_hit_gen += young_hit;
   return current - pl->roots;
 }
 
@@ -926,7 +938,7 @@ static int scan_pool_young(scanning_action action, void *data, pool *pl)
       CALL_GC_ACTION(action, data, v, &current->as_value);
     }
   }
-  stats.young_hit_young += young_hit;
+  if (STATS) stats.young_hit_young += young_hit;
   return current - start;
 }
 
@@ -983,8 +995,10 @@ static void scan_roots(scanning_action action, int only_young,
   } else {
     free_pool_ring(&pools[dom_id]->free);
   }
-  if (only_young) stats.total_scanning_work_minor += work;
-  else stats.total_scanning_work_major += work;
+  if (STATS) {
+    if (only_young) stats.total_scanning_work_minor += work;
+    else stats.total_scanning_work_major += work;
+  }
   if (DEBUG) validate_all_pools(dom_id);
 }
 
@@ -994,7 +1008,7 @@ static void scan_roots(scanning_action action, int only_young,
 
 static long long time_counter(void)
 {
-#if defined(POSIX_CLOCK)
+#if defined(POSIX_CLOCK) && STATS
   struct timespec t;
   clock_gettime(CLOCK_MONOTONIC, &t);
   return (long long)t.tv_sec * (long long)1000000000 + (long long)t.tv_nsec;
@@ -1142,8 +1156,8 @@ static void scanning_callback(scanning_action action, int only_young,
   if (boxroot_status() == BOXROOT_NOT_SETUP
       || boxroot_status() == BOXROOT_TORE_DOWN) return;
   bool in_minor_collection = bxr_in_minor_collection();
-  if (in_minor_collection) incr(&stats.minor_collections);
-  else incr(&stats.major_collections);
+  if (in_minor_collection) STATS_INCR(minor_collections);
+  else STATS_INCR(major_collections);
   int dom_id = Domain_id;
   if (pools[dom_id] == NULL) return; /* synchronised by domain lock */
 #if !OCAML_MULTICORE
@@ -1152,10 +1166,12 @@ static void scanning_callback(scanning_action action, int only_young,
   long long start = time_counter();
   scan_roots(action, only_young, data, dom_id);
   long long duration = time_counter() - start;
-  atomic_llong *total = in_minor_collection ? &stats.total_minor_time : &stats.total_major_time;
-  atomic_llong *peak = in_minor_collection ? &stats.peak_minor_time : &stats.peak_major_time;
-  *total += duration;
-  if (duration > *peak) *peak = duration; // racy, but whatever
+  if (STATS) {
+    atomic_llong *total = in_minor_collection ? &stats.total_minor_time : &stats.total_major_time;
+    atomic_llong *peak = in_minor_collection ? &stats.peak_minor_time : &stats.peak_major_time;
+    *total += duration;
+    if (duration > *peak) *peak = duration; // racy, but whatever
+  }
 }
 
 /* Handle orphaning of domain-local pools */

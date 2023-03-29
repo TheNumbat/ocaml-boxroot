@@ -26,39 +26,61 @@ all:
 clean:
 	dune clean
 
-EMPTY=
-REF_IMPLS=\
-  boxroot \
-  gc \
-  $(EMPTY)
-REF_IMPLS_MORE=\
-  ocaml \
-  generational \
-  $(EMPTY)
-REF_IMPLS_MORE_MORE=\
-  ocaml_ref \
-  dll_boxroot \
-  bitmap_boxroot \
-  rem_boxroot \
-  global \
-  $(EMPTY)
-
 ifeq ($(TEST_MORE),2)
 TEST_MORE_MORE=1
 endif
 
+ifdef IMPL
+
+REF_IMPLS=$(IMPL) gc
+LOCAL_IMPLS=$(IMPL) local
+
+else
+
+EMPTY=
+
+REF_IMPLS=\
+  boxroot \
+  gc \
+  $(if $(TEST_MORE), \
+    ocaml \
+    generational \
+    bitmap_boxroot \
+    dll_boxroot) \
+  $(if $(TEST_MORE_MORE), \
+    ocaml_ref \
+    rem_boxroot \
+    global) \
+  $(EMPTY)
+
+LOCAL_IMPLS=\
+	boxroot \
+	local  \
+	$(if $(TEST_MORE), \
+	  ocaml \
+	  ocaml_ref \
+	  naive \
+	  generational \
+	  bitmap_boxroot \
+	  dll_boxroot) \
+	$(if $(TEST_MORE_MORE), \
+	  rem_boxroot \
+	  global) \
+  $(EMPTY)
+
+endif
+
 DUNE_EXEC = dune exec --display=quiet
-HYPER = hyperfine --warmup 1 --min-runs 20
+HYPER = hyperfine --warmup 2 --min-runs 20
 
 check_tsc = \
   sh -c "if [ tsc != `cat /sys/devices/system/clocksource/clocksource0/current_clocksource` ]; then echo \"Warning: /sys/devices/system/clocksource/clocksource0/current_clocksource is not tsc\";fi;";
 
 run_bench = \
-	$(check_tsc) \
+  $(check_tsc) \
   echo "Benchmark: $(1)" \
   && echo "---" \
-  $(foreach REF, $(REF_IMPLS) $(if $(TEST_MORE),$(REF_IMPLS_MORE),) \
-	               $(if $(TEST_MORE_MORE),$(REF_IMPLS_MORE_MORE),), \
+  $(foreach REF, $(REF_IMPLS), \
     && ($(2) "REF=$(REF) $(3)") \
   ) \
 	&& echo "---"
@@ -73,7 +95,7 @@ run_par_perm_count = \
 
 run_synthetic = \
 	$(call run_bench,"synthetic", $(1), \
-	    N=8 \
+	    N=7 \
 	    SMALL_ROOTS=10_000 \
 	    YOUNG_RATIO=1 \
 	    LARGE_ROOTS=20 \
@@ -93,12 +115,11 @@ run_local_roots = \
 	$(check_tsc) \
 	echo "Benchmark: local_roots" \
 	&& echo "---" \
-	$(foreach N, 1 2 $(if $(TEST_MORE),3 4,) 5 $(if $(TEST_MORE),8,) 10 \
-		           $(if $(TEST_MORE),30,) 100 $(if $(TEST_MORE),300,) 1000, \
-	  $(foreach ROOT, boxroot local $(if $(TEST_MORE), ocaml generational naive) \
-                    $(if $(TEST_MORE_MORE), ocaml_ref dll_boxroot bitmap_boxroot rem_boxroot global), \
-	    && ($(1) "N=$(N) ROOT=$(ROOT) $(DUNE_EXEC) ./benchmarks/local_roots.exe") \
-	  ) && echo "---")
+	$(foreach N, 1 2 $(if $(TEST_MORE), 3,) 5 $(if $(TEST_MORE), 7,) 10 \
+	             $(if $(TEST_MORE),30,) 100 $(if $(TEST_MORE),300,) 1000, \
+	  $(foreach ROOT, $(LOCAL_IMPLS), \
+	    && ($(1) "N=$(N) ROOT=$(ROOT) $(DUNE_EXEC) ./benchmarks/local_roots.exe")) \
+	  && echo "---")
 
 .PHONY: run-perm_count hyper-perm_count
 run-perm_count: all
@@ -147,6 +168,15 @@ run-more:
 	$(MAKE) run TEST_MORE=1
 hyper-more:
 	$(MAKE) hyper TEST_MORE=1
+
+.PHONY: bench-full
+bench-full:
+	echo "===Boost:" `cat /sys/devices/system/cpu/cpufreq/boost` "===" \
+	&& make hyper TEST_MORE=1 \
+	&& echo "===bitmap (hotspot)===" \
+	&& make hyper IMPL=bitmap_boxroot ENABLE_BOXROOT_GENERATIONAL=0 ENABLE_BOXROOT_MUTEX=1 TEST_MORE=1 \
+	&& echo "===bitmap (thread-unsafe)===" \
+	&& make hyper IMPL=bitmap_boxroot ENABLE_BOXROOT_GENERATIONAL=1 ENABLE_BOXROOT_MUTEX=0 TEST_MORE=1
 
 .PHONY: test-boxroot
 test-boxroot: all

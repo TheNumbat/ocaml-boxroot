@@ -60,6 +60,7 @@ let n =
     Printf.ksprintf failwith "We expected an environment variable N with an integer value."
 
 let _ =
+  Random.init 42;
   Ref.Config.Ref.setup ();
   Printf.printf "%s: %!" Ref.Config.implem_name;
   let module Test = MakeTest(Ref.Config.Ref) in
