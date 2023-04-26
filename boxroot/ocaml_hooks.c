@@ -81,7 +81,9 @@ void bxr_setup_hooks(bxr_scanning_callback scanning,
                      caml_timing_hook domain_termination)
 {
   scanning_callback = scanning;
-  // save previous hooks and install ours
+  // Save previous hooks and install ours.
+  // prev_*_hook synchronized via domain lock since the hooks are called
+  // during STW.
   prev_scan_roots_hook = atomic_exchange(&caml_scan_roots_hook,
                                          bxr_scan_hook);
   prev_minor_begin_hook = atomic_exchange(&caml_minor_gc_begin_hook,

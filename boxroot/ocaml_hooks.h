@@ -50,6 +50,7 @@ extern _Thread_local bool bxr_thread_has_lock;
 typedef void (*bxr_scanning_callback) (scanning_action action,
                                        int only_young, void *data);
 
+/* Must be called while holding the domain lock */
 void bxr_setup_hooks(bxr_scanning_callback scanning,
                      caml_timing_hook domain_termination);
 
