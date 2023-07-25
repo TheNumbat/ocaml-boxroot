@@ -231,7 +231,7 @@ static struct {
 /* ownership required: none */
 static inline pool * get_pool_header(bxr_slot_ref s)
 {
-  if (DEBUG) STATS_INCR(get_pool_header);
+  if (BOXROOT_DEBUG) STATS_INCR(get_pool_header);
   return (pool *)Bxr_get_pool_header(s);
 }
 
@@ -241,7 +241,7 @@ static inline pool * get_pool_header(bxr_slot_ref s)
 /* ownership required: none */
 static inline bool is_pool_member(bxr_slot v, pool *p)
 {
-  if (DEBUG) STATS_INCR(is_pool_member);
+  if (BOXROOT_DEBUG) STATS_INCR(is_pool_member);
   return (uintptr_t)p == ((uintptr_t)v.as_slot_ref & ~((uintptr_t)BXR_POOL_SIZE - 2));
 }
 
@@ -260,7 +260,7 @@ static inline void ring_link(pool *p, pool *q)
 {
   p->next = q;
   q->prev = p;
-  if (DEBUG) STATS_INCR(ring_operations);
+  if (BOXROOT_DEBUG) STATS_INCR(ring_operations);
 }
 
 /* insert the ring [source] at the back of [*target]. */
@@ -893,7 +893,7 @@ static int scan_pool_gen(scanning_action action, void *data, pool *pl)
     if (!is_pool_member(s, pl)) {
       --allocs_to_find;
       value v = s.as_value;
-      if (DEBUG && Is_block(v) && Is_young(v)) ++young_hit;
+      if (BOXROOT_DEBUG && Is_block(v) && Is_young(v)) ++young_hit;
       CALL_GC_ACTION(action, data, v, &current->as_value);
     }
     ++current;
@@ -982,7 +982,7 @@ static int scan_pools(scanning_action action, int only_young,
 static void scan_roots(scanning_action action, int only_young,
                        void *data, int dom_id)
 {
-  if (DEBUG) validate_all_pools(dom_id);
+  if (BOXROOT_DEBUG) validate_all_pools(dom_id);
   /* First perform all the delayed deallocations. This also moves the
      current pool to the young pools. */
   gc_pool_rings(dom_id);
@@ -999,7 +999,7 @@ static void scan_roots(scanning_action action, int only_young,
     if (only_young) stats.total_scanning_work_minor += work;
     else stats.total_scanning_work_major += work;
   }
-  if (DEBUG) validate_all_pools(dom_id);
+  if (BOXROOT_DEBUG) validate_all_pools(dom_id);
 }
 
 /* }}} */
@@ -1042,12 +1042,12 @@ void boxroot_print_stats()
   if (stats.total_alloced_pools == 0) return;
 
   printf("BXR_POOL_LOG_SIZE: %d (%'lld KiB, %'d roots/pool)\n"
-         "DEBUG: %d\n"
+         "BOXROOT_DEBUG: %d\n"
          "OCAML_MULTICORE: %d\n"
          "BXR_MULTITHREAD: %d\n"
          "BXR_FORCE_REMOTE: %d\n",
          (int)BXR_POOL_LOG_SIZE, kib_of_pools(1, 1), (int)POOL_CAPACITY,
-         (int)DEBUG, (int)OCAML_MULTICORE,
+         (int)BOXROOT_DEBUG, (int)OCAML_MULTICORE,
          (int)BXR_MULTITHREAD, (int)BXR_FORCE_REMOTE);
 
   printf("total allocated pools: %'lld (%'lld MiB)\n"
@@ -1069,7 +1069,7 @@ void boxroot_print_stats()
     average(stats.total_scanning_work_major, stats.major_collections);
   long long total_scanning_work =
     stats.total_scanning_work_minor + stats.total_scanning_work_major;
-#if DEBUG
+#if BOXROOT_DEBUG
   double young_hits_gen_pct =
     average(stats.young_hit_gen * 100, stats.total_scanning_work_major);
 #endif
@@ -1079,14 +1079,14 @@ void boxroot_print_stats()
   printf("work per minor: %'.0f\n"
          "work per major: %'.0f\n"
          "total scanning work: %'lld (%'lld minor, %'lld major)\n"
-#if DEBUG
+#if BOXROOT_DEBUG
          "young hits (non-minor collection): %.2f%%\n"
 #endif
          "young hits (minor collection): %.2f%%\n",
          scanning_work_minor,
          scanning_work_major,
          total_scanning_work, stats.total_scanning_work_minor, stats.total_scanning_work_major,
-#if DEBUG
+#if BOXROOT_DEBUG
          young_hits_gen_pct,
 #endif
          young_hits_young_pct);
@@ -1123,7 +1123,7 @@ void boxroot_print_stats()
          ring_operations_per_pool,
          stats.total_gc_pool_rings);
 
-#if DEBUG
+#if BOXROOT_DEBUG
   long long total_create = stats.total_create_young + stats.total_create_old;
   long long total_delete = stats.total_delete_young + stats.total_delete_old;
   double create_young_pct =

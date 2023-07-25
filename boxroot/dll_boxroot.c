@@ -179,7 +179,7 @@ void delete_elem(ring elem) {
 
 static inline int is_young_block(value v)
 {
-  if (DEBUG) ++stats.is_young;
+  if (BOXROOT_DEBUG) ++stats.is_young;
   return Is_block(v) && Is_young(v);
 }
 
@@ -190,7 +190,7 @@ static inline void track_elem(ring elem) {
 
 dll_boxroot dll_boxroot_create(value init)
 {
-  if (DEBUG) ++stats.total_create;
+  if (BOXROOT_DEBUG) ++stats.total_create;
   ring root = create_elem();
   root->slot = init;
   track_elem(root);
@@ -272,7 +272,7 @@ static int scan_ring(scanning_action action, void *data, ring r)
 static void scan_roots(scanning_action action, void *data)
 {
   int work = 0;
-  if (DEBUG) validate_all_rings();
+  if (BOXROOT_DEBUG) validate_all_rings();
   work += scan_ring(action, data, rings.young);
   if (bxr_in_minor_collection()) {
     ring_push_back(rings.young, &rings.old);
@@ -284,7 +284,7 @@ static void scan_roots(scanning_action action, void *data)
     rings.free = NULL;
     stats.total_scanning_work_major += work;
   }
-  if (DEBUG) validate_all_rings();
+  if (BOXROOT_DEBUG) validate_all_rings();
 }
 
 /* }}} */
@@ -316,7 +316,7 @@ void dll_boxroot_print_stats()
          stats.minor_collections,
          stats.major_collections);
 
-#if DEBUG != 0
+#if BOXROOT_DEBUG
   printf("total created: %'d\n"
          "total deleted: %'d\n"
          "total modified: %'d\n",
@@ -389,7 +389,7 @@ int dll_boxroot_setup()
   bxr_setup_hooks(&scanning_callback, NULL);
   // we are done
   setup = 1;
-  if (DEBUG) validate_all_rings();
+  if (BOXROOT_DEBUG) validate_all_rings();
   return 1;
 }
 

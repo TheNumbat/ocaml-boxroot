@@ -24,6 +24,7 @@ let ocaml_ref_fixpoint f x =
   !(ocaml_ref_fixpoint_rec fr xr)
 
 external local_fixpoint : (float -> float) -> float -> float = "local_fixpoint"
+external local_ref_fixpoint : (float -> float) -> float -> float = "local_ref_fixpoint"
 external naive_fixpoint : (float -> float) -> float -> float = "naive_fixpoint"
 external boxroot_fixpoint : (float -> float) -> float -> float = "boxroot_fixpoint"
 external dll_boxroot_fixpoint : (float -> float) -> float -> float = "dll_boxroot_fixpoint"
@@ -51,6 +52,13 @@ external rem_boxroot_stats : unit -> unit = "rem_boxroot_stats_caml"
 
 let local = {
   fixpoint = local_fixpoint;
+  setup = ignore;
+  teardown = ignore;
+  stats = ignore;
+}
+
+let local_ref = {
+  fixpoint = local_ref_fixpoint;
   setup = ignore;
   teardown = ignore;
   stats = ignore;
@@ -121,6 +129,7 @@ let rem_boxroot = {
 
 let implementations = [
   "local", local;
+  "local_ref", local_ref;
   "ocaml", ocaml;
   "ocaml_ref", ocaml_ref;
   "naive", naive;

@@ -124,8 +124,12 @@ extern bxr_free_list *bxr_current_free_list[/*Num_domains + 1*/];
 void bxr_create_debug(value v);
 boxroot bxr_create_slow(value v);
 
-/* Test the overheads of multithreading (systhreads and multicore).
-   Purely for experimental purposes. Otherwise should always be true. */
+/* Used to test the overheads of multithreading (systhreads and
+   multicore) A value of false makes boxroot domain-local (no movement
+   between domains allowed), and single-threaded (no deletion without
+   the domain lock allowed, no check for domain lock ownerhsip).
+   Purely for experimental purposes. Otherwise should always be
+   true. */
 #define BXR_MULTITHREAD true
 /* Make every deallocation a remote deallocation. For testing purposes
    only. Otherwise should always be false. */
@@ -133,15 +137,14 @@ boxroot bxr_create_slow(value v);
 
 inline boxroot boxroot_create(value init)
 {
-#if defined(BOXROOT_DEBUG) && (BOXROOT_DEBUG == 1)
+#if defined(BOXROOT_DEBUG) && BOXROOT_DEBUG
   bxr_create_debug(init);
 #endif
   /* Find current free_list. Synchronized by domain lock. */
-  ptrdiff_t dom_id =
-    (OCAML_MULTICORE && BXR_MULTITHREAD) ? bxr_cached_dom_id : 0;
+  ptrdiff_t dom_id = OCAML_MULTICORE ? bxr_cached_dom_id : 0;
   bxr_free_list *fl = bxr_current_free_list[dom_id + 1];
   bxr_slot_ref new_root = fl->next;
-  if (BXR_UNLIKELY(!bxr_domain_lock_held())
+  if (BXR_UNLIKELY(BXR_MULTITHREAD && !bxr_domain_lock_held())
       || BXR_UNLIKELY(new_root == (bxr_slot_ref)fl))
     return bxr_create_slow(init);
   fl->next = new_root->as_slot_ref;
@@ -181,7 +184,7 @@ void bxr_delete_slow(bxr_free_list *fl, boxroot root, bool remote);
 
 inline void boxroot_delete(boxroot root)
 {
-#if defined(BOXROOT_DEBUG) && (BOXROOT_DEBUG == 1)
+#if defined(BOXROOT_DEBUG) && BOXROOT_DEBUG
   bxr_delete_debug(root);
 #endif
   bxr_free_list *fl = Bxr_get_pool_header(root);
@@ -201,7 +204,7 @@ bool bxr_modify_slow(boxroot *rootp, value new_value);
 
 inline bool boxroot_modify(boxroot *rootp, value new_value)
 {
-#if defined(BOXROOT_DEBUG) && (BOXROOT_DEBUG == 1)
+#if defined(BOXROOT_DEBUG) && BOXROOT_DEBUG
   bxr_modify_debug(rootp);
 #endif
   if (BXR_UNLIKELY(!bxr_domain_lock_held())) return 0;

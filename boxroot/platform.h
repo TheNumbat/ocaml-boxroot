@@ -70,11 +70,13 @@ void bxr_mutex_unlock(mutex_t *mutex);
 /* Check integrity of pool structure after each scan, and print
    additional statistics? (slow)
    This can be enabled by passing BOXROOT_DEBUG=1 as argument. */
-#if defined(BOXROOT_DEBUG) && (BOXROOT_DEBUG == 1)
-#define DEBUG true
+#ifndef BOXROOT_DEBUG
+#define BOXROOT_DEBUG false
+#endif
+
+#if BOXROOT_DEBUG
 #define DEBUGassert(x) assert(x)
 #else
-#define DEBUG false
 #if defined(__GNUC__)
 #define DEBUGassert(x) do { if (!(x)) { __builtin_unreachable(); } } while (0)
 #else

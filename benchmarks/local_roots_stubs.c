@@ -32,12 +32,54 @@ value local_fixpoint(value f, value x)
   }
 }
 
+
+/* Caller-roots variant of compare_val */
+
+typedef value const * value_ref;
+
+int compare_refs(value_ref x, value_ref y)
+{
+  /* Simulate a function that does some actual work---nothing to root
+     here. */
+  return Double_val(*x) == Double_val(*y);
+}
+
+
+/* Using the reap implementation of local refs (OpenJDK-style) */
+
+#include "../boxroot/arena.h"
+
+local_ref local_ref_fixpoint_rooted(local_ref f, local_ref x)
+{
+  local_ref y = alloc_local_ref(caml_callback(local_get(f), local_get(x)));
+  if (compare_refs(local_get_ref(x), local_get_ref(y))) {
+    /* No need to delete x */
+    return y;
+  } else {
+    delete_local_ref(x);
+    return local_ref_fixpoint_rooted(f, y);
+  }
+}
+
+value local_ref_fixpoint(value f, value x)
+{
+  arena a;
+  init_arena(&a);
+  local_ref f0 = alloc_local_ref(f);
+  local_ref x0 = alloc_local_ref(x);
+  value res = local_get(local_ref_fixpoint_rooted(f0, x0));
+  drop_arena(&a);
+  return res;
+}
+
+
 /* Naive version with boxroots, callee-roots */
 
 #include "../boxroot/boxroot.h"
 
 int compare_val_naive(value x, value y)
 {
+  /* Simulate a function that does some actual work. */
   boxroot xr = boxroot_create(x);
   boxroot yr = boxroot_create(y);
   int res = Double_val(boxroot_get(xr)) == Double_val(boxroot_get(yr));
