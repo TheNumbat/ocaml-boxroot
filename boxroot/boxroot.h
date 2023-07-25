@@ -124,11 +124,12 @@ extern bxr_free_list *bxr_current_free_list[/*Num_domains + 1*/];
 void bxr_create_debug(value v);
 boxroot bxr_create_slow(value v);
 
-/* Test the overheads of multithreading (systhreads and multicore).
-   This makes boxroot domain-local (no movement between domains
-   allowed), and single-threaded (no deletion without the domain lock
-   allowed, no check for domain lock ownerhsip). Purely for
-   experimental purposes. Otherwise should always be true. */
+/* Used to test the overheads of multithreading (systhreads and
+   multicore) A value of false makes boxroot domain-local (no movement
+   between domains allowed), and single-threaded (no deletion without
+   the domain lock allowed, no check for domain lock ownerhsip).
+   Purely for experimental purposes. Otherwise should always be
+   true. */
 #define BXR_MULTITHREAD true
 /* Make every deallocation a remote deallocation. For testing purposes
    only. Otherwise should always be false. */
