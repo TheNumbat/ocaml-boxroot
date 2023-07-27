@@ -758,16 +758,20 @@ static void validate_ring(pool **ring, int dom_id, int cl)
   } while (p != start_pool);
 }
 
+static void validate_current_pool(pool **current, int dom_id)
+{
+  if (*current != NULL) (*current)->free_list.alloc_count--;
+  validate_ring(current, dom_id, YOUNG);
+  if (*current != NULL) (*current)->free_list.alloc_count++;
+}
+
 /* ownership required: domain */
 static void validate_all_pools(int dom_id)
 {
   pool_rings *local = pools[dom_id];
   validate_ring(&local->old, dom_id, OLD);
   validate_ring(&local->young, dom_id, YOUNG);
-  pool **current = &local->current;
-  if (*current != NULL) (*current)->free_list.alloc_count--;
-  validate_ring(current, dom_id, YOUNG);
-  if (*current != NULL) (*current)->free_list.alloc_count++;
+  validate_current_pool(&local->current, dom_id);
   validate_ring(&local->free, dom_id, UNTRACKED);
 }
 
