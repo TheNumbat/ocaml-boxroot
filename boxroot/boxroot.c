@@ -775,8 +775,6 @@ static void orphan_pools(int dom_id)
   /* Move active pools to the orphaned pools. TODO: NUMA awareness? */
   ring_push_back(local->old, &orphan.old);
   ring_push_back(local->young, &orphan.young);
-  pool *p = take_current_pool(dom_id);
-  ring_push_back(p, &orphan.young);
   bxr_mutex_unlock(&orphan_mutex);
   /* Free the rest */
   free_pool_ring(&local->free);
