@@ -415,19 +415,24 @@ static void set_current_pool(int dom_id, pool *p)
   set_current_fl(dom_id, &p->free_list);
 }
 
-/* Change the current pool from p to NULL and return p. */
-static pool * take_current_pool(int dom_id)
+static void reclassify_pool(pool **source, int dom_id, int cl);
+
+/* Empty the current pool ring onto the young pool ring. */
+static void move_current_to_young(int dom_id)
 {
   pool_rings *local = pools[dom_id];
-  DEBUGassert(local->current != NULL);
-  pool *p = ring_pop(&local->current);
-  // Undo the increment in set_current_pool
-  p->free_list.alloc_count--;
-  set_current_fl(dom_id, &empty_fl);
-  return p;
+  if (local->current != NULL) {
+    pool *p = ring_pop(&local->current);
+    // Undo the increment in set_current_pool
+    p->free_list.alloc_count--;
+    // Heuristic: if a current pool has just been allocated, we ensure
+    // that it is the first one to be considered the next time a young
+    // boxroot allocation takes place. It is added to the front and
+    // stays to the front after reclassifications.
+    reclassify_pool(&p, dom_id, YOUNG);
+    set_current_fl(dom_id, &empty_fl);
+  }
 }
-
-static void reclassify_pool(pool **source, int dom_id, int cl);
 
 /* Move not-too-full pools to the front; move empty pools to the free
    ring. */
@@ -502,14 +507,22 @@ static void reclassify_pool(pool **source, int dom_id, int cl)
   if (is_not_too_full(p)) *target = p;
 }
 
+/* Reclassify a full ring while maintaining ordering */
+static void reclassify_ring(pool **ring, int dom_id, int cl)
+{
+  while (*ring != NULL) {
+    // LIFO
+    *ring = (*ring)->prev;
+    reclassify_pool(ring, dom_id, cl);
+  }
+}
+
 /* ownership required: domain */
 static void promote_young_pools(int dom_id)
 {
   pool_rings *local = pools[dom_id];
-  // Promote full pools
-  while (local->young != NULL) {
-    reclassify_pool(&local->young, dom_id, OLD);
-  }
+  // Promote non-empty pools
+  reclassify_ring(&local->young, dom_id, OLD);
   // There is no current pool to promote. Ensure that a domain that
   // does not use any boxroot between two minor collections does not
   // pay the cost of scanning any pool.
@@ -567,13 +580,12 @@ boxroot bxr_create_slow(value init)
     assert(bxr_cached_dom_id == dom_id);
   }
   if (local->current != NULL) {
-    pool *p = take_current_pool(dom_id);
     /* Necessarily we are here because the pool is full */
-    DEBUGassert(is_full_pool(p));
+    DEBUGassert(is_full_pool(local->current));
     /* We probably cannot garbage-collect the current pool, since it
        is highly unlikely that all the cells have been freed in the
        delayed_fl at this point. */
-    reclassify_pool(&p, dom_id, YOUNG);
+    move_current_to_young(dom_id);
     /* Instead, whenever we fill a pool, we do enough work to
        garbage-collect any one young pool that may have been emptied
        remotely. This is quick since there are not many young pools.
@@ -746,20 +758,20 @@ static void validate_ring(pool **ring, int dom_id, int cl)
   } while (p != start_pool);
 }
 
+static void validate_current_pool(pool **current, int dom_id)
+{
+  if (*current != NULL) (*current)->free_list.alloc_count--;
+  validate_ring(current, dom_id, YOUNG);
+  if (*current != NULL) (*current)->free_list.alloc_count++;
+}
+
 /* ownership required: domain */
 static void validate_all_pools(int dom_id)
 {
   pool_rings *local = pools[dom_id];
   validate_ring(&local->old, dom_id, OLD);
   validate_ring(&local->young, dom_id, YOUNG);
-  if (local->current != NULL) {
-    pool *p = take_current_pool(dom_id);
-    validate_ring(&p, dom_id, YOUNG);
-    assert(&p->free_list == bxr_current_free_list[dom_id + 1]);
-    set_current_pool(dom_id, p);
-  } else {
-    assert(&empty_fl == bxr_current_free_list[dom_id + 1]);
-  }
+  validate_current_pool(&local->current, dom_id);
   validate_ring(&local->free, dom_id, UNTRACKED);
 }
 
@@ -770,13 +782,12 @@ static void orphan_pools(int dom_id)
 {
   pool_rings *local = pools[dom_id];
   if (local == NULL) return;
+  move_current_to_young(dom_id);
   gc_pool_rings(dom_id);
   bxr_mutex_lock(&orphan_mutex);
   /* Move active pools to the orphaned pools. TODO: NUMA awareness? */
   ring_push_back(local->old, &orphan.old);
   ring_push_back(local->young, &orphan.young);
-  pool *p = take_current_pool(dom_id);
-  ring_push_back(p, &orphan.young);
   bxr_mutex_unlock(&orphan_mutex);
   /* Free the rest */
   free_pool_ring(&local->free);
@@ -788,10 +799,8 @@ static void orphan_pools(int dom_id)
 static void adopt_orphaned_pools(int dom_id)
 {
   bxr_mutex_lock(&orphan_mutex);
-  while (orphan.old != NULL)
-    reclassify_pool(&orphan.old, dom_id, OLD);
-  while (orphan.young != NULL)
-    reclassify_pool(&orphan.young, dom_id, YOUNG);
+  reclassify_ring(&orphan.old, dom_id, OLD);
+  reclassify_ring(&orphan.young, dom_id, YOUNG);
   bxr_mutex_unlock(&orphan_mutex);
 }
 
@@ -860,21 +869,15 @@ static void gc_ring(pool **ring, int dom_id)
 
 static long long time_counter(void);
 
-/* empty the delayed free lists in the chosen pool rings and
-   move the pools accordingly */
+/* Empty the delayed free lists in the chosen pool rings and move the
+   pools accordingly. Assumes that the current pool has been moved to
+   the young pools. */
 /* ownership required: STW */
 static void gc_pool_rings(int dom_id)
 {
   STATS_INCR(total_gc_pool_rings);
   pool_rings *local = pools[dom_id];
-  // Heuristic: if a young pool has just been allocated, it is better
-  // if it is the first one to be considered the next time a young
-  // boxroot allocation takes place. (First it ends up last, so that
-  // it ends up to the front after pool promotion.)
-  if (local->current != NULL) {
-    pool *p = take_current_pool(dom_id);
-    reclassify_pool(&p, dom_id, YOUNG);
-  }
+  DEBUGassert(local->current == NULL);
   gc_ring(&local->young, dom_id);
   gc_ring(&local->old, dom_id);
 }
@@ -983,8 +986,8 @@ static void scan_roots(scanning_action action, int only_young,
                        void *data, int dom_id)
 {
   if (BOXROOT_DEBUG) validate_all_pools(dom_id);
-  /* First perform all the delayed deallocations. This also moves the
-     current pool to the young pools. */
+  move_current_to_young(dom_id);
+  /* First perform all the delayed deallocations. */
   gc_pool_rings(dom_id);
   /* The first domain arriving there will take ownership of the pools
      of terminated domains. */
