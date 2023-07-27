@@ -425,6 +425,10 @@ static void move_current_to_young(int dom_id)
     pool *p = ring_pop(&local->current);
     // Undo the increment in set_current_pool
     p->free_list.alloc_count--;
+    // Heuristic: if a current pool has just been allocated, we ensure
+    // that it is the first one to be considered the next time a young
+    // boxroot allocation takes place. It is added to the front and
+    // stays to the front after reclassifications.
     reclassify_pool(&p, dom_id, YOUNG);
     set_current_fl(dom_id, &empty_fl);
   }
@@ -503,14 +507,22 @@ static void reclassify_pool(pool **source, int dom_id, int cl)
   if (is_not_too_full(p)) *target = p;
 }
 
+/* Reclassify a full ring while maintaining ordering */
+static void reclassify_ring(pool **ring, int dom_id, int cl)
+{
+  while (*ring != NULL) {
+    // LIFO
+    *ring = (*ring)->prev;
+    reclassify_pool(ring, dom_id, cl);
+  }
+}
+
 /* ownership required: domain */
 static void promote_young_pools(int dom_id)
 {
   pool_rings *local = pools[dom_id];
-  // Promote full pools
-  while (local->young != NULL) {
-    reclassify_pool(&local->young, dom_id, OLD);
-  }
+  // Promote non-empty pools
+  reclassify_ring(&local->young, dom_id, OLD);
   // There is no current pool to promote. Ensure that a domain that
   // does not use any boxroot between two minor collections does not
   // pay the cost of scanning any pool.
@@ -783,10 +795,8 @@ static void orphan_pools(int dom_id)
 static void adopt_orphaned_pools(int dom_id)
 {
   bxr_mutex_lock(&orphan_mutex);
-  while (orphan.old != NULL)
-    reclassify_pool(&orphan.old, dom_id, OLD);
-  while (orphan.young != NULL)
-    reclassify_pool(&orphan.young, dom_id, YOUNG);
+  reclassify_ring(&orphan.old, dom_id, OLD);
+  reclassify_ring(&orphan.young, dom_id, YOUNG);
   bxr_mutex_unlock(&orphan_mutex);
 }
 
@@ -863,11 +873,6 @@ static void gc_pool_rings(int dom_id)
 {
   STATS_INCR(total_gc_pool_rings);
   pool_rings *local = pools[dom_id];
-  // Heuristic: if a young pool has just been allocated and moved to
-  // the young pools, we ensure that it is the first one to be
-  // considered the next time a young boxroot allocation takes place.
-  // (First it ends up last, so that it ends up to the front after
-  // pool promotion.)
   DEBUGassert(local->current == NULL);
   gc_ring(&local->young, dom_id);
   gc_ring(&local->old, dom_id);
