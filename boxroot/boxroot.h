@@ -54,6 +54,11 @@ inline void boxroot_delete(boxroot);
 */
 inline bool boxroot_modify(boxroot *, value);
 
+/* With OCaml 4 and when using threads, `boxroot_setup_systhreads()`
+   must be called after OCaml startup, but before creating any thread
+   and before allocating any boxroot. Obsolete under OCaml ≥ 5.0. */
+static inline void boxroot_setup_systhreads();
+
 /* `boxroot_teardown()` releases all the resources of Boxroot. None of
    the function above must be called after this. `boxroot_teardown`
    can only be called after OCaml shuts down. */
@@ -64,15 +69,10 @@ void boxroot_teardown();
 
    - Permanent failures:
        - `BOXROOT_TORE_DOWN`: `boxroot_teardown` has been called.
-       - `BOXROOT_INVALID`: in OCaml 4, initializing the thread
-         machinery after Boxroot has been intialized overwrites the
-         hooks we use. Threads should be initialized before Boxroot.
-         Either:
-           - From OCaml, make sure the `Thread` module is already
-             initialized when allocating the first boxroot.
-           - From C, if calling `caml_startup` by hand, then you can
-             call `caml_thread_initialize` immediately afterwards (but
-             only with OCaml 4). With OCaml 5 there is nothing to do.
+       - `BOXROOT_INVALID`: Boxroot is in an an invalid state when
+         using OCaml 4 and threads. Results from not properly calling
+         `boxroot_setup_systhreads()` between OCaml startup and
+         creating any thread.
 
    - Transient failures (`BOXROOT_RUNNING`), check `errno`:
        - `errno == EPERM`: you tried calling `boxroot_create` or
@@ -89,7 +89,7 @@ int boxroot_status();
 /* Show some statistics on the standard output. */
 void boxroot_print_stats();
 
-/* Obsolete, does nothing. */
+/* Obsolete. */
 bool boxroot_setup();
 
 
@@ -216,5 +216,26 @@ inline bool boxroot_modify(boxroot *rootp, value new_value)
     return bxr_modify_slow(rootp, new_value);
   }
 }
+
+#if !OCAML_MULTICORE
+
+/* From ocaml/otherlibs/systhreads/st_stubs.c */
+value caml_thread_initialize(value unit);
+
+/* With systhreads, `boxroot_setup` must be called after
+   `caml_thread_initialize` but before any thread is created. Using
+   `static inline` to avoid causing linking errors with this
+   definition when systhreads is not linked.*/
+static inline void boxroot_setup_systhreads()
+{
+  caml_thread_initialize(1);
+  boxroot_setup();
+}
+
+#else
+
+static inline void boxroot_setup_systhreads() {}
+
+#endif
 
 #endif // BOXROOT_H

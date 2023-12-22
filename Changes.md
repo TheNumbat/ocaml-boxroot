@@ -1,3 +1,15 @@
+ocaml-boxroot 0.3.1
+===================
+
+### General changes
+
+- Introduce `boxroot_setup_systhreads()`, which must be called when
+  using OCaml 4 and threads to avoid a bug. It must be called between
+  OCaml startup and first thread creation.
+  (Guillaume Munch-Maccagnoni, report and suggestion by Gabriel
+  Scherer)
+
+
 ocaml-boxroot 0.3.0
 ===================
 

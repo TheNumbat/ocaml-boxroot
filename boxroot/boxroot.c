@@ -1170,8 +1170,12 @@ static bool setup()
   return res;
 }
 
-/* obsolete */
-bool boxroot_setup() { return true; }
+/* With OCaml < 5.0, runtime lock detection must be setup before any
+   thread is created, otherwise it does not work. It must also be
+   installed after threads initialization. In addition, [setup] must
+   be called if one cannot guarantee that the first boxroot allocation
+   runs while holding the lock. */
+bool boxroot_setup() { return setup(); }
 
 /* We are sole owner of the pools at this point, no need for
    locking. */
