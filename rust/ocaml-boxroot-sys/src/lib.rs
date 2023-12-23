@@ -28,6 +28,13 @@ extern "C" {
     pub fn boxroot_create(v: Value) -> Option<BoxRoot>;
     pub fn boxroot_delete(br: BoxRoot);
     pub fn boxroot_modify(br: *mut BoxRoot, v: Value) -> bool;
+    fn caml_thread_initialize(v: Value) -> Value;
+    fn boxroot_setup() -> bool;
+}
+
+pub unsafe fn boxroot_setup_systhreads() {
+    caml_thread_initialize(1);
+    boxroot_setup();
 }
 
 #[repr(C)]
@@ -51,7 +58,7 @@ extern "C" {
 mod tests {
     use crate::{
         boxroot_create, boxroot_delete, boxroot_get, boxroot_get_ref, boxroot_modify,
-        boxroot_teardown,
+        boxroot_teardown, boxroot_setup_systhreads
     };
 
     extern "C" {
@@ -66,6 +73,7 @@ mod tests {
             let c_args = vec![arg0, core::ptr::null()];
 
             caml_startup(c_args.as_ptr());
+            boxroot_setup_systhreads();
 
             let mut br = boxroot_create(1).unwrap();
             let v1 = *core::cell::UnsafeCell::raw_get(boxroot_get_ref(br));
