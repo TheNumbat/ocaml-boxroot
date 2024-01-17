@@ -5,7 +5,7 @@
  (flags -DENABLE_BOXROOT_MUTEX=%{env:ENABLE_BOXROOT_MUTEX=0}
         -DBOXROOT_DEBUG=%{env:BOXROOT_DEBUG=0}
         -Wall -Wpointer-arith -Wcast-qual -Wsign-compare
-        -O2 -fno-strict-aliasing)
+        -O2 -fno-strict-aliasing -std=c2x)
 )
 
 

@@ -19,9 +19,10 @@ pool * bxr_alloc_uninitialised_pool(size_t size)
   void *p = NULL;
   // TODO: portability?
   // Win32: p = _aligned_malloc(size, alignment);
-  int err = posix_memalign(&p, size, size);
-  assert(err != EINVAL);
-  if (err == ENOMEM) return NULL;
+  // int err = posix_memalign(&p, size, size);
+  // assert(err != EINVAL);
+  // if (err == ENOMEM) return NULL;
+  p = aligned_alloc(size, size);
   assert(p != NULL);
   return p;
 }
