@@ -31,6 +31,12 @@
 static_assert(!BXR_FORCE_REMOTE || BXR_MULTITHREAD,
               "invalid configuration");
 
+
+caml_domain_state *caml_get_domain_state()
+{
+  return Caml_state;
+}
+
 /* }}} */
 
 /* {{{ Data types */
