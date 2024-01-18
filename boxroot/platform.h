@@ -18,7 +18,7 @@ typedef intnat value;
 #define BXR_UNLIKELY(a) (a)
 #endif
 
-#if OCAML_VERSION >= 50000 && defined CAML_RUNTIME_5
+#if (OCAML_VERSION >= 50000) && (!defined BUILD_RS || defined OCAML_VERSION_5)
 #include <caml/domain_state.h>
 #define OCAML_MULTICORE true
 #else
