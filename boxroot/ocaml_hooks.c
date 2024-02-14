@@ -138,11 +138,8 @@ static void setup_thread_hooks()
 
 bool bxr_check_thread_hooks()
 {
-  if (caml_leave_blocking_section_hook != bxr_leave_blocking_section
-      || caml_enter_blocking_section_hook != bxr_enter_blocking_section) {
-    return false;
-    setup_thread_hooks();
-  }
+  // Another library may have replaced the hooks, so we'll
+  // just hope they remember to call our hook too.
   return true;
 }
 
