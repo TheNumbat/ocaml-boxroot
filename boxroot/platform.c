@@ -8,9 +8,16 @@
 #if OCAML_MULTICORE
 
 #include <caml/domain.h>
+
+#ifdef Max_domains
 static_assert(Max_domains <= Num_domains,
               "OCaml is configured for a maximum number of domains greater than"
               " Boxroot's.");
+#elif (defined Max_domains_max)
+static_assert(Max_domains_max <= Num_domains,
+              "OCaml is configured for a maximum number of domains greater than"
+              " Boxroot's.");
+#endif 
 
 #endif
 

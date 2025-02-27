@@ -40,7 +40,7 @@ typedef intnat value;
 
 /* We currently rely on OCaml 5.0 having a max number of domains; this
    is checked for consistency. */
-#define Num_domains 128
+#define Num_domains 4096
 #define Domain_id (Caml_state->id)
 
 #else
